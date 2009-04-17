@@ -1,0 +1,9 @@
+#!/usr/bin/python
+import sys
+import struct
+import zlib
+import os
+
+buf = sys.stdin.read()
+sys.stdout.write(zlib.decompress(buf, -15))
+
