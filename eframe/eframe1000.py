@@ -35,9 +35,9 @@ tmp = eframe.SearchForFrame()
 if tmp == None:
     print "Could not find eframe"
     sys.exit(1)
-print tmp
 frame_address = (tmp[7], int(tmp[1]))
+print "Eframe found:\t" + str(tmp)
 
-print eframe.ReadStorageStatus(frame_address)
-print eframe.ReadSystemStatus(frame_address)
+print "Storage Status:\t" + str(eframe.ReadStorageStatus(frame_address))
+print "System Status:\t" + str(eframe.ReadSystemStatus(frame_address))
 eframe.SendByeBye()
