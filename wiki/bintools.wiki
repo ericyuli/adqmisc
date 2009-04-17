@@ -1,6 +1,6 @@
 #summary Useful utilities for examining binary files
 
-[ ? Source]
+[http://code.google.com/p/adqmisc/source/browse/trunk/bintools Source]
 
   * bincompare - Compare two binary files and report differences.
   * deflatedbitfinder - do a brute force scan of a binary file to find chunks which have been compressed using 'deflate'
