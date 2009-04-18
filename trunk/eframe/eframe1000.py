@@ -14,11 +14,6 @@ import sys
 # Byebye,PF110-DEV,PF110-PC,0829003416,"000829003416"
 # token ,FROM,     TO,      serialnum, frame name
 
-# host sends: 
-# Register,PF110-PC,PF110-DEV,21901,RegisterStatus,20021,21901,me,me,PF110,QmitwPF,1,172.16.1.150,1
-# response:
-# Register-Resp,PF110-DEV,PF110-PC,21902,RegisterStatus,0
-
 # >> Post,PF110-PC,PF110-DEV,21901,CopyStart,1,0					--LAST NUMBER IS FILE TYPE: 0 == IMAGE, 1 == MP3
 # << Post-Resp,PF110-DEV,PF110-PC,21902,CopyStart,0
 # device transfers files from the ftp server from /vCopyFolder
@@ -65,4 +60,7 @@ print "Eframe found:\t" + str(tmp)
 
 print "Storage Status:\t" + str(eframe.ReadStorageStatus(frame_address))
 print "System Status:\t" + str(eframe.ReadSystemStatus(frame_address))
+print "Register Status:\t" + str(eframe.ReadRegisterStatus(frame_address))
+
+
 eframe.SendByeBye()
