@@ -10,7 +10,9 @@ class EFrameProto:
 		 pc_manager_port = 21901,
 		 ftp_port = 20021,
 		 ftp_username = "PF110",
-		 ftp_password = "QmitwPF"):
+		 ftp_password = "QmitwPF",
+		 serial_number = gethostname(),
+		 frame_name = gethostname() ):
 	
 	self.local_ip = local_ip
 	self.broadcast_address = broadcast_address
@@ -19,6 +21,8 @@ class EFrameProto:
 	self.ftp_port = ftp_port
 	self.ftp_username = ftp_username
 	self.ftp_password = ftp_password
+	self.serial_number = serial_number
+	self.frame_name = frame_name
 
 	# Create a udp socket to broadcast on
 	self.udp_socket = socket(AF_INET, SOCK_DGRAM)
@@ -46,7 +50,6 @@ class EFrameProto:
 
     def SendManagerPacket(self, frame_address, packet_type, data):
 
-
 	# seems to need a completely new socket for every one!
 	mgr_out_socket = socket(AF_INET, SOCK_STREAM)
 	mgr_out_socket.connect(frame_address)
@@ -62,14 +65,19 @@ class EFrameProto:
 	    raise Exception("Receieved bad packet")
 	return tmp
 
-    def WaitForConnection(self, timeout):
+    def WaitForConnection(self, timeout = None, retries = 1, func = None):
 
 	self.tcp_server.settimeout(timeout)
-	while True:
+	while retries > 0:
+	    retries -= 1
+
+	    if func:
+		func()
+
 	    try:
 		return self.tcp_server.accept()
 	    except:
-		return    
+		pass
 
     def GetResponsePacket(self, timeout, mgr_in_socket):
 
@@ -82,9 +90,9 @@ class EFrameProto:
 	finally:
 	    mgr_in_socket.close()
 
-    def WaitForResponse(self, timeout):
+    def WaitForResponse(self, timeout = None, retries = 1, func = None):
 
-	tmp = self.WaitForConnection(timeout)
+	tmp = self.WaitForConnection(timeout, retries, func)
 	if tmp == None:
 	    return
 	return self.GetResponsePacket(timeout, tmp[0])
@@ -92,7 +100,7 @@ class EFrameProto:
     def ReadProperty(self, frame_address, property_name):
 
 	self.SendManagerPacket(frame_address, "Read", (property_name, ))
-	tmp = self.WaitForResponse(None)
+	tmp = self.WaitForResponse()
 	if tmp == None or tmp[0] != 'Read-Resp' or tmp[4] != property_name:
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
@@ -105,25 +113,17 @@ class EFrameProto:
     def SearchForFrame(self):
 	data = (str(self.ftp_port),
 		str(self.pc_manager_port),
-		gethostname(),		 	# frame serial number; we just use the hostname from the pc side
-		gethostname(), 			# frame name; aagin, we just use the hostname from the pc side 
+		self.serial_number,
+		self.frame_name,
 		self.ftp_username,
 		self.ftp_password,
 		str(1),	  			# FIXME: not sure what this is
 		self.local_ip)
 
-	# Wait for a frame to connect to our TCP server
-	self.tcp_server.settimeout(2.0)
-	while True:
+	def bcast():
 	    self.SendBroadcastPacket("Search", data)
-	    try:
-		mgr_in_socket, addr = self.tcp_server.accept()
-		break
-	    except:
-		pass
 
-	# Process and check the response
-	tmp = self.GetResponsePacket(None, mgr_in_socket)
+	tmp = self.WaitForResponse(2.0, 20, bcast)
 	if tmp == None:
 	    return
 	if tmp[0] != 'Register' or tmp[4] != 'RegisterStatus':
@@ -131,8 +131,8 @@ class EFrameProto:
 	return tmp[5:]
 
     def SendByeBye(self):
-	data = (gethostname(), 			# frame serial number; we just use the hostname from the pc side
-		gethostname()) 			# frame name; aagin, we just use the hostname from the pc side
+	data = (self.serial_number,
+		self.frame_name)
 
 	self.SendBroadcastPacket("ByeBye", data)
 
@@ -143,3 +143,20 @@ class EFrameProto:
     def ReadSystemStatus(self, frame_address):
 	
 	return self.ReadProperty(frame_address, "SystemStatus")
+
+    def ReadRegisterStatus(self, frame_address):
+	data = ("RegisterStatus",
+		str(self.ftp_port),
+		str(self.pc_manager_port),
+		self.serial_number,
+		self.frame_name,
+		self.ftp_username,
+		self.ftp_password,
+		str(1),	  			# FIXME: not sure what this is
+		self.local_ip)
+
+	self.SendManagerPacket(frame_address, "Register", data)
+	tmp = self.WaitForResponse()
+	if tmp == None or tmp[0] != 'Register-Resp' or tmp[4] != "RegisterStatus":
+	    raise Exception("Received unexpected reply")
+	return tmp[5:]	
