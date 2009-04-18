@@ -12,7 +12,7 @@ class EFrameProto:
 		 ftp_username = "PF110",
 		 ftp_password = "QmitwPF",
 		 serial_number = gethostname(),
-		 frame_name = gethostname() ):
+		 local_name = gethostname() ):
 	
 	self.local_ip = local_ip
 	self.broadcast_address = broadcast_address
@@ -22,7 +22,7 @@ class EFrameProto:
 	self.ftp_username = ftp_username
 	self.ftp_password = ftp_password
 	self.serial_number = serial_number
-	self.frame_name = frame_name
+	self.local_name = local_name
 
 	# Create a udp socket to broadcast on
 	self.udp_socket = socket(AF_INET, SOCK_DGRAM)
@@ -42,6 +42,17 @@ class EFrameProto:
 	data = ",".join(data)
 	data += "\r\n"
 	return data
+
+    def BuildRegisterPacket(self):
+
+	return (str(self.ftp_port),
+		str(self.pc_manager_port),
+		self.serial_number,
+		self.local_name,
+		self.ftp_username,
+		self.ftp_password,
+		str(1),	  			# FIXME: not sure what this is
+		self.local_ip)
 
     def SendBroadcastPacket(self, packet_type, data):
 
@@ -97,11 +108,11 @@ class EFrameProto:
 	    return
 	return self.GetResponsePacket(timeout, tmp[0])
 
-    def ReadProperty(self, frame_address, property_name):
+    def DoCommand(self, frame_address, action, data):
 
-	self.SendManagerPacket(frame_address, "Read", (property_name, ))
+	self.SendManagerPacket(frame_address, action, data)
 	tmp = self.WaitForResponse()
-	if tmp == None or tmp[0] != 'Read-Resp' or tmp[4] != property_name:
+	if tmp == None or (tmp[0] != action + '-Resp') or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
 
@@ -109,16 +120,8 @@ class EFrameProto:
 
 
 
-
     def SearchForFrame(self):
-	data = (str(self.ftp_port),
-		str(self.pc_manager_port),
-		self.serial_number,
-		self.frame_name,
-		self.ftp_username,
-		self.ftp_password,
-		str(1),	  			# FIXME: not sure what this is
-		self.local_ip)
+	data = self.BuildRegisterPacket()
 
 	def bcast():
 	    self.SendBroadcastPacket("Search", data)
@@ -131,32 +134,17 @@ class EFrameProto:
 	return tmp[5:]
 
     def SendByeBye(self):
-	data = (self.serial_number,
-		self.frame_name)
 
-	self.SendBroadcastPacket("ByeBye", data)
+	self.SendBroadcastPacket("ByeBye", (self.serial_number, self.local_name))
 
     def ReadStorageStatus(self, frame_address):
 
-	return self.ReadProperty(frame_address, "StorageStatus")
+	return self.DoCommand(frame_address, "Read", ("StorageStatus", ))
 
     def ReadSystemStatus(self, frame_address):
 	
-	return self.ReadProperty(frame_address, "SystemStatus")
+	return self.DoCommand(frame_address, "Read", ("SystemStatus", ))
 
     def ReadRegisterStatus(self, frame_address):
-	data = ("RegisterStatus",
-		str(self.ftp_port),
-		str(self.pc_manager_port),
-		self.serial_number,
-		self.frame_name,
-		self.ftp_username,
-		self.ftp_password,
-		str(1),	  			# FIXME: not sure what this is
-		self.local_ip)
 
-	self.SendManagerPacket(frame_address, "Register", data)
-	tmp = self.WaitForResponse()
-	if tmp == None or tmp[0] != 'Register-Resp' or tmp[4] != "RegisterStatus":
-	    raise Exception("Received unexpected reply")
-	return tmp[5:]	
+	return self.DoCommand(frame_address, "Register", ("RegisterStatus", ) + self.BuildRegisterPacket())
