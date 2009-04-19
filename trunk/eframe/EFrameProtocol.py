@@ -1,138 +1,186 @@
 # -*- coding: utf-8 -*-
 from socket import *
 import struct
+import time
 
-class EFrameProtocol:
+
+
+def FormatPacket(data):
+
+    data = [x.replace(",", "_") for x in data]
+    data = ",".join(data)
+    data += "\r\n"
+    return data
+
+
+def WaitForResponse(tcp_server, timeout = None):
+
+    # Wait for something to connect to us
+    mgr_in_socket = None
+    tcp_server.settimeout(timeout)
+    try:
+	mgr_in_socket = tcp_server.accept()[0]
+    except:
+	return None
+
+    # Read the response line and parse it
+    mgr_in_socket.setblocking(1)
+    mgr_in_socket.settimeout(timeout)
+    try:
+	pkt = mgr_in_socket.recv(1024).strip().split(",")
+	if pkt[1] != "PF110-DEV" or pkt[2] != "PF110-PC":
+	    raise Exception("Receieved bad packet")
+	return pkt
+    except:
+	return None
+    finally:
+	mgr_in_socket.close()
+
+
+
+
+
+
+
+class EFrameLocator:
 
     def __init__(self, 
 		 local_ip, 
-		 broadcast_address = "255.255.255.255",
-		 broadcast_port = 21900, 
-		 pc_manager_port = 21901,
-		 ftp_port = 20021,
-		 ftp_username = "PF110",
-		 ftp_password = "QmitwPF",
+		 broadcast_ip = "255.255.255.255",
+		 broadcast_port = 21900,
 		 serial_number = gethostname(),
-		 local_name = gethostname() ):
-	
+		 local_name = gethostname()):
+
 	self.local_ip = local_ip
-	self.broadcast_address = broadcast_address
-	self.broadcast_port = broadcast_port
-	self.pc_manager_port = pc_manager_port
-	self.ftp_port = ftp_port
-	self.ftp_username = ftp_username
-	self.ftp_password = ftp_password
+	self.broadcast_address = (broadcast_ip, broadcast_port)
 	self.serial_number = serial_number
 	self.local_name = local_name
 
 	# Create a udp socket to broadcast on
 	self.udp_socket = socket(AF_INET, SOCK_DGRAM)
-	self.udp_socket.bind(("0.0.0.0", self.broadcast_port))
 	self.udp_socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
 
 	# Create a TCP server socket to listen for connects on
 	self.tcp_server = socket(AF_INET, SOCK_STREAM)
-	self.tcp_server.bind(("0.0.0.0", self.pc_manager_port))
-	self.tcp_server.listen(1)
-	self.tcp_server.settimeout(2.0)
+	self.tcp_server.listen(10)
 	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
+	self.local_manager_port = self.tcp_server.getsockname()[1]
 
 
-    def FormatPacket(self, data):
+    def __del__(self):
 
-	data = [x.replace(",", "_") for x in data]
-	data = ",".join(data)
-	data += "\r\n"
-	return data
-
-
-    def BuildRegisterPacket(self):
-
-	return (str(self.ftp_port),
-		str(self.pc_manager_port),
-		self.serial_number,
-		self.local_name,
-		self.ftp_username,
-		self.ftp_password,
-		str(1),	  			# FIXME: not sure what this '1' is for
-		self.local_ip)
+	self.udp_socket.close()
+	self.tcp_server.close()
 
 
     def SendBroadcastPacket(self, packet_type, data):
 
 	data = (packet_type, "PF110-PC", "PF110-DEV") + data
-	self.udp_socket.sendto(self.FormatPacket(data), (self.broadcast_address, self.broadcast_port))
+	self.udp_socket.sendto(FormatPacket(data), self.broadcast_address)
 
 
-    def SendManagerPacket(self, frame_address, packet_type, data):
+    def FindEFrames(self, timeout):
+
+	# Build the Search packet
+	searchpkt = ("20021", str(self.local_manager_port), self.serial_number, self.local_name, "", "", str(1), self.local_ip)
+
+	# Loop, looking for eframes
+	start = time.time()
+	while time.time() < start + timeout:
+
+	    # broadcast the search packet
+	    self.SendBroadcastPacket("Search", searchpkt)
+	    
+	    # Deal with anything which has connected to us
+	    while True:
+		tmp = WaitForResponse(self.tcp_server, 1.0)
+		if tmp == None:
+		    break
+		if tmp[0] == 'Register' and tmp[4] == 'RegisterStatus':
+		    return ((tmp[12], int(tmp[3])), tmp[7], tmp[8].strip('"'))
+
+	# FIXME: allow >1 frame
+
+    def SendByeBye(self):
+
+	self.SendBroadcastPacket("ByeBye", (self.serial_number, self.local_name))
+
+
+
+
+
+
+class EFrame:
+
+    def __init__(self, 
+		 local_ip, 
+		 frame_address,
+		 frame_serial,
+		 frame_name,
+		 ftp_port = 20021,
+		 ftp_username = "PF110",
+		 ftp_password = "QmitwPF",
+		 serial_number = gethostname(),
+		 local_name = gethostname(),
+		 timeout = 10.0 ):
+
+	self.local_ip = local_ip
+	self.frame_address = frame_address
+	self.frame_serial = frame_serial
+	self.frame_name = frame_name
+	self.ftp_port = ftp_port
+	self.ftp_username = ftp_username
+	self.ftp_password = ftp_password
+	self.serial_number = serial_number
+	self.local_name = local_name
+	self.timeout = timeout
+
+	# Create a TCP server socket to listen for connects on
+	self.tcp_server = socket(AF_INET, SOCK_STREAM)
+	self.tcp_server.listen(1)
+	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
+	self.local_manager_port = self.tcp_server.getsockname()[1]
+
+	# Re-register the supplied frame with /this/ instance
+	self.RegisterFrame()
+
+
+    def __del__(self):
+
+	self.tcp_server.close()
+
+
+    def __str__(self):
+
+	return "%s(%s) @%s" % (self.frame_name, self.frame_serial, self.frame_address)
+
+
+    def SendManagerPacket(self, packet_type, data):
 
 	# seems to need a completely new socket for every one!
 	mgr_out_socket = socket(AF_INET, SOCK_STREAM)
-	mgr_out_socket.connect(frame_address)
+	mgr_out_socket.connect(self.frame_address)
 
-	data = (packet_type, "PF110-PC", "PF110-DEV", str(self.pc_manager_port)) + data
-	mgr_out_socket.send(self.FormatPacket(data))
+	data = (packet_type, "PF110-PC", "PF110-DEV", str(self.local_manager_port)) + data
+	mgr_out_socket.send(FormatPacket(data))
 	mgr_out_socket.close()
 
 
-    def ParseReceivedPacket(self, raw):
+    def DoCommand(self, action, data):
 
-	tmp = raw.strip().split(",")
-	if tmp[1] != "PF110-DEV" or tmp[2] != "PF110-PC":
-	    raise Exception("Receieved bad packet")
-	return tmp
-
-
-    def WaitForConnection(self, timeout = None, retries = 1, func = None):
-
-	self.tcp_server.settimeout(timeout)
-	while retries > 0:
-	    retries -= 1
-
-	    if func:
-		func()
-
-	    try:
-		return self.tcp_server.accept()
-	    except:
-		pass
-
-
-    def GetResponsePacket(self, timeout, mgr_in_socket):
-
-	mgr_in_socket.setblocking(1)
-	mgr_in_socket.settimeout(timeout)
-	try:
-	    return self.ParseReceivedPacket(mgr_in_socket.recv(1024))
-	except:
-	    pass
-	finally:
-	    mgr_in_socket.close()
-
-
-    def WaitForResponse(self, timeout = None, retries = 1, func = None):
-
-	tmp = self.WaitForConnection(timeout, retries, func)
-	if tmp == None:
-	    return
-	return self.GetResponsePacket(timeout, tmp[0])
-
-
-    def DoCommand(self, frame_address, action, data):
-
-	self.SendManagerPacket(frame_address, action, data)
-	tmp = self.WaitForResponse()
+	self.SendManagerPacket(action, data)
+	tmp = WaitForResponse(self.tcp_server, self.timeout)
 	if tmp == None or (tmp[0] != action + "-Resp") or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
 
 
-    def DoTransfer(self, frame_address, file_type_id, start_action, stop_action, progress_func, copy_action_func):
+    def DoTransfer(self, file_type_id, start_action, stop_action, progress_func, copy_action_func):
 
-	self.DoCommand(frame_address, "Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
+	self.DoCommand(self.frame_address, "Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
 	while True:
 	    # wait for the next response
-	    tmp = self.WaitForResponse()
+	    tmp = WaitForResponse(self.tcp_server, self.timeout)
 	    if tmp == None:
 		raise Exception("Transfer timed out")
 	    if tmp[0] != 'Post':
@@ -145,13 +193,13 @@ class EFrameProtocol:
 	    elif token == "CopyPause":
 		action = copy_action_func(tmp[5:])
 		if action == "REPLACEALL":
-		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(0)))
+		    self.SendManagerPacket("Post", ("CopyPause", str(0)))
 		elif action == "REPLACE":
-		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(1)))
+		    self.SendManagerPacket("Post", ("CopyPause", str(1)))
 		elif action == "NOREPLACE":
-		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(2)))
+		    self.SendManagerPacket("Post", ("CopyPause", str(2)))
 		elif action == "ABORT":
-		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(3)))
+		    self.SendManagerPacket("Post", ("CopyPause", str(3)))
 	    elif token == stop_action:
 		break
 	    else:
@@ -164,50 +212,37 @@ class EFrameProtocol:
 
 
 
-    def SearchForFrame(self):
-	data = self.BuildRegisterPacket()
-
-	def bcast():
-	    self.SendBroadcastPacket("Search", data)
-
-	tmp = self.WaitForResponse(2.0, 20, bcast)
-	if tmp == None:
-	    return
-	if tmp[0] != 'Register' or tmp[4] != 'RegisterStatus':
-	    raise Exception("Received unexpected reply")
-	return tmp[5:]
 
 
-    def SendByeBye(self):
+    def RegisterFrame(self):
 
-	self.SendBroadcastPacket("ByeBye", (self.serial_number, self.local_name))
+	# Build the register packet
+	registerpkt = ("RegisterStatus", str(self.ftp_port), str(self.local_manager_port), self.serial_number, 
+		       self.local_name, self.ftp_username, self.ftp_password, str(1), self.local_ip)
+
+	return self.DoCommand("Register", registerpkt)
 
 
-    def ReadStorageStatus(self, frame_address):
+    def ReadStorageStatus(self):
 
-	return self.DoCommand(frame_address, "Read", ("StorageStatus", ))
+	return self.DoCommand("Read", ("StorageStatus", ))
 
 
-    def ReadSystemStatus(self, frame_address):
+    def ReadSystemStatus(self):
 	
-	return self.DoCommand(frame_address, "Read", ("SystemStatus", ))
+	return self.DoCommand("Read", ("SystemStatus", ))
 
 
-    def ReadRegisterStatus(self, frame_address):
-
-	return self.DoCommand(frame_address, "Register", ("RegisterStatus", ) + self.BuildRegisterPacket())
-
-
-    def TransferPhotos(self, frame_address, progress_func, copy_action_func):
+    def TransferPhotos(self, progress_func, copy_action_func):
 	
-	self.DoTransfer(frame_address, 0, "CopyStart", "CopyStop", progress_func, copy_action_func)
+	self.DoTransfer(0, "CopyStart", "CopyStop", progress_func, copy_action_func)
 
 
-    def TransferMusic(self, frame_address, progress_func, copy_action_func):
+    def TransferMusic(self, progress_func, copy_action_func):
 	
-	self.DoTransfer(frame_address, 1, "CopyStart", "CopyStop", progress_func, copy_action_func)
+	self.DoTransfer(1, "CopyStart", "CopyStop", progress_func, copy_action_func)
 
 
-    def TransferRss(self, frame_address, progress_func, copy_action_func):
+    def TransferRss(self, progress_func, copy_action_func):
 	
-	self.DoTransfer(frame_address, 2, "RssFileStart", "RssFileStop", progress_func, copy_action_func)
+	self.DoTransfer(2, "RssFileStart", "RssFileStop", progress_func, copy_action_func)
