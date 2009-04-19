@@ -1,7 +1,7 @@
 #!/usr/bin/python 
 # -*- coding: utf-8 -*-
 from socket import *
-from EFrameProto import *
+from EFrameProtocol import *
 import time
 import struct
 import sys
@@ -43,7 +43,7 @@ import sys
 
 
 # Create an eframe instance
-eframe = EFrameProto("172.16.1.17")
+eframe = EFrameProtocol("172.16.1.17")
 tmp = eframe.SearchForFrame()
 if tmp == None:
     print "Could not find eframe"
