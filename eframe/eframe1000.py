@@ -36,17 +36,10 @@ import sys
 # device transfers a PF110.RSS from the ftp server from /vRssFolder/PF110.RSS
 
 
-# Undecoded strings:
-# Updata
-# commands: Write, Write-Resp, Register, Register-Resp, Post, Post-Resp
-# WifiStatus
-# operations: RegisterStatus, CopyStart, CopyStop, CopyPause, PushStart, PushStop, RssFileStart, RssFileStop, BtCaceroRss, ProgressStatus, KeepAlive
+# Undecoded strings: Updata, Write, Write-Resp, WifiStatus, PushStart, PushStop, BtCaceroRss, KeepAlive
 
-# Decoded strings:
-# Search, Byebye, 
-# Read, Read-Resp, 
-# SystemStatus, 
-# StorageStatus, 
+# Decoded strings: Search, Byebye, Read, Read-Resp, Register, Register-Resp, Post, Post-Resp, 
+# SystemStatus, RssFileStart, RssFileStop, ProgressStatus, StorageStatus, RegisterStatus, CopyStart, CopyStop, CopyPause
 
 
 # Create an eframe instance
