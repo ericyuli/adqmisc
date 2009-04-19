@@ -100,7 +100,7 @@ class EFrameLocator:
 		if tmp[0] == 'Register' and tmp[4] == 'RegisterStatus':
 		    return ((tmp[12], int(tmp[3])), tmp[7], tmp[8].strip('"'))
 
-	# FIXME: allow >1 frame
+	# FIXME: allow >1 eframe
 
     def SendByeBye(self):
 
@@ -116,8 +116,6 @@ class EFrame:
     def __init__(self, 
 		 local_ip, 
 		 frame_address,
-		 frame_serial,
-		 frame_name,
 		 ftp_port = 20021,
 		 ftp_username = "PF110",
 		 ftp_password = "QmitwPF",
@@ -127,8 +125,6 @@ class EFrame:
 
 	self.local_ip = local_ip
 	self.frame_address = frame_address
-	self.frame_serial = frame_serial
-	self.frame_name = frame_name
 	self.ftp_port = ftp_port
 	self.ftp_username = ftp_username
 	self.ftp_password = ftp_password
@@ -144,10 +140,12 @@ class EFrame:
 
 	# Re-register the supplied frame with /this/ instance
 	self.RegisterFrame()
+	tmp = self.ReadSystemStatus()
+	self.serial_number = tmp[0]
+	self.frame_name = tmp[1].strip('"')
 
 
     def __del__(self):
-
 	self.tcp_server.close()
 
 
@@ -173,15 +171,17 @@ class EFrame:
 	tmp = WaitForResponse(self.tcp_server, self.timeout)
 	if tmp == None or (tmp[0] != action + "-Resp") or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply")
-	return tmp[5:]
+	if int(tmp[5]) != 0:
+	    print "Warning: Value expected to be zero was actually %s" % tmp[5]
+	return tmp[6:]
 
 
     def DoTransfer(self, file_type_id, start_action, stop_action, progress_func, copy_action_func):
 
-	self.DoCommand(self.frame_address, "Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
+	self.DoCommand("Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
 	while True:
 	    # wait for the next response
-	    tmp = WaitForResponse(self.tcp_server, self.timeout)
+	    tmp = WaitForResponse(self.tcp_server, None)
 	    if tmp == None:
 		raise Exception("Transfer timed out")
 	    if tmp[0] != 'Post':
@@ -191,6 +191,7 @@ class EFrame:
 	    token = tmp[4]
 	    if token == "ProgressStatus":
 		progress_func(tmp[5:])
+
 	    elif token == "CopyPause":
 		action = copy_action_func(tmp[5:])
 		if action == "REPLACEALL":
@@ -201,10 +202,14 @@ class EFrame:
 		    self.SendManagerPacket("Post", ("CopyPause", str(2)))
 		elif action == "ABORT":
 		    self.SendManagerPacket("Post", ("CopyPause", str(3)))
+		else:
+		    raise Exception("Unknown action %s from copy_action_func()" % action)
+
 	    elif token == stop_action:
 		break
+
 	    else:
-		raise Exception("Unexepected protocol %s token during file transfer" % str(tmp))
+		raise Exception("Unexpected protocol %s token during file transfer" % str(tmp))
 
 	# FIXME: send final response packet
 
@@ -220,7 +225,7 @@ class EFrame:
 	registerpkt = ("RegisterStatus", str(self.ftp_port), str(self.local_manager_port), self.serial_number, 
 		       self.local_name, self.ftp_username, self.ftp_password, str(1), self.local_ip)
 
-	return self.DoCommand("Register", registerpkt)
+	self.DoCommand("Register", registerpkt)
 
 
     def ReadStorageStatus(self):
@@ -246,3 +251,4 @@ class EFrame:
     def TransferRss(self, progress_func, copy_action_func):
 	
 	self.DoTransfer(2, "RssFileStart", "RssFileStop", progress_func, copy_action_func)
+
