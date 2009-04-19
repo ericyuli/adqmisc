@@ -82,7 +82,8 @@ class EFrameLocator:
     def FindEFrames(self, timeout):
 
 	# Build the Search packet
-	searchpkt = ("20021", str(self.local_manager_port), self.serial_number, self.local_name, "", "", str(1), self.local_ip)
+	# FIXME: unsure what the '1' is for
+	searchpkt = ("", str(self.local_manager_port), self.serial_number, self.local_name, "", "", str(1), self.local_ip)
 
 	# Loop, looking for eframes
 	start = time.time()
@@ -216,7 +217,6 @@ class EFrame:
 
     def RegisterFrame(self):
 
-	# Build the register packet
 	registerpkt = ("RegisterStatus", str(self.ftp_port), str(self.local_manager_port), self.serial_number, 
 		       self.local_name, self.ftp_username, self.ftp_password, str(1), self.local_ip)
 
