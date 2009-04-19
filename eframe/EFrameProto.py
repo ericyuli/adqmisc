@@ -78,7 +78,7 @@ class EFrameProto:
     def ParseReceivedPacket(self, raw):
 
 	tmp = raw.strip().split(",")
-	if tmp[1] != 'PF110-DEV' or tmp[2] != 'PF110-PC':
+	if tmp[1] != "PF110-DEV" or tmp[2] != "PF110-PC"=:
 	    raise Exception("Receieved bad packet")
 	return tmp
 
@@ -122,7 +122,7 @@ class EFrameProto:
 
 	self.SendManagerPacket(frame_address, action, data)
 	tmp = self.WaitForResponse()
-	if tmp == None or (tmp[0] != action + '-Resp') or (tmp[4] != data[0]):
+	if tmp == None or (tmp[0] != action + "-Resp") or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
 

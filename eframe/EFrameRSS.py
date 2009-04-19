@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import struct
 
-class EFrameRSS:
-    """File formatter for the binary RSS feed files used by the eframe."""
+class EFrameRSSFeedList:
+    """File formatter for the binary RSS feed list files used by the eframe."""
     
     def __init__(self):
 	self.__feeds = ()
