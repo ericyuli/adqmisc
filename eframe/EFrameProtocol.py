@@ -2,7 +2,7 @@
 from socket import *
 import struct
 
-class EFrameProto:
+class EFrameProtocol:
 
     def __init__(self, 
 		 local_ip, 
@@ -78,7 +78,7 @@ class EFrameProto:
     def ParseReceivedPacket(self, raw):
 
 	tmp = raw.strip().split(",")
-	if tmp[1] != "PF110-DEV" or tmp[2] != "PF110-PC"=:
+	if tmp[1] != "PF110-DEV" or tmp[2] != "PF110-PC":
 	    raise Exception("Receieved bad packet")
 	return tmp
 
