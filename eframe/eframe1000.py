@@ -1,9 +1,8 @@
 #!/usr/bin/python 
 # -*- coding: utf-8 -*-
-from socket import *
-from EFrameProtocol import *
-import time
-import struct
+
+import EFrameProtocol
+from EFrameRSSFeedList import *
 import sys
 
 # sent by photoframe on startup (to 255.255.255.255 port 21900)
@@ -43,17 +42,10 @@ import sys
 
 
 # Create an eframe instance
-eframe = EFrameProtocol("172.16.1.17")
-tmp = eframe.SearchForFrame()
-if tmp == None:
-    print "Could not find eframe"
-    sys.exit(1)
-frame_address = (tmp[7], int(tmp[1]))
-print "Eframe found:\t" + str(tmp)
+locator = EFrameProtocol.EFrameLocator("172.16.1.17")
+tmp = locator.FindEFrames(20.0)
+eframe = EFrameProtocol.EFrame("172.16.1.17", tmp[0], tmp[1], tmp[2])
 
-print "Storage Status:\t" + str(eframe.ReadStorageStatus(frame_address))
-print "System Status:\t" + str(eframe.ReadSystemStatus(frame_address))
-print "Register Status:\t" + str(eframe.ReadRegisterStatus(frame_address))
-
-
-eframe.SendByeBye()
+print "Storage Status:\t" + str(eframe.ReadStorageStatus())
+print "System Status:\t" + str(eframe.ReadSystemStatus())
+locator.SendByeBye()
