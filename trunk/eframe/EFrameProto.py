@@ -4,7 +4,8 @@ import struct
 
 class EFrameProto:
 
-    def __init__(self, local_ip, 
+    def __init__(self, 
+		 local_ip, 
 		 broadcast_address = "255.255.255.255",
 		 broadcast_port = 21900, 
 		 pc_manager_port = 21901,
@@ -36,12 +37,14 @@ class EFrameProto:
 	self.tcp_server.settimeout(2.0)
 	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
 
+
     def FormatPacket(self, data):
 
 	data = [x.replace(",", "_") for x in data]
 	data = ",".join(data)
 	data += "\r\n"
 	return data
+
 
     def BuildRegisterPacket(self):
 
@@ -51,13 +54,15 @@ class EFrameProto:
 		self.local_name,
 		self.ftp_username,
 		self.ftp_password,
-		str(1),	  			# FIXME: not sure what this is
+		str(1),	  			# FIXME: not sure what this '1' is for
 		self.local_ip)
+
 
     def SendBroadcastPacket(self, packet_type, data):
 
 	data = (packet_type, "PF110-PC", "PF110-DEV") + data
 	self.udp_socket.sendto(self.FormatPacket(data), (self.broadcast_address, self.broadcast_port))
+
 
     def SendManagerPacket(self, frame_address, packet_type, data):
 
@@ -69,12 +74,14 @@ class EFrameProto:
 	mgr_out_socket.send(self.FormatPacket(data))
 	mgr_out_socket.close()
 
+
     def ParseReceivedPacket(self, raw):
 
 	tmp = raw.strip().split(",")
 	if tmp[1] != 'PF110-DEV' or tmp[2] != 'PF110-PC':
 	    raise Exception("Receieved bad packet")
 	return tmp
+
 
     def WaitForConnection(self, timeout = None, retries = 1, func = None):
 
@@ -90,6 +97,7 @@ class EFrameProto:
 	    except:
 		pass
 
+
     def GetResponsePacket(self, timeout, mgr_in_socket):
 
 	mgr_in_socket.setblocking(1)
@@ -101,12 +109,14 @@ class EFrameProto:
 	finally:
 	    mgr_in_socket.close()
 
+
     def WaitForResponse(self, timeout = None, retries = 1, func = None):
 
 	tmp = self.WaitForConnection(timeout, retries, func)
 	if tmp == None:
 	    return
 	return self.GetResponsePacket(timeout, tmp[0])
+
 
     def DoCommand(self, frame_address, action, data):
 
@@ -115,6 +125,40 @@ class EFrameProto:
 	if tmp == None or (tmp[0] != action + '-Resp') or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
+
+
+    def DoTransfer(self, frame_address, file_type_id, start_action, stop_action, progress_func, copy_action_func):
+
+	self.DoCommand(frame_address, "Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
+	while True:
+	    # wait for the next response
+	    tmp = self.WaitForResponse()
+	    if tmp == None:
+		raise Exception("Transfer timed out")
+	    if tmp[0] != 'Post':
+		raise Exception("Received unexpected reply")
+	    
+	    # Deal with the response
+	    token = tmp[4]
+	    if token == "ProgressStatus":
+		progress_func(tmp[5:])
+	    elif token == "CopyPause":
+		action = copy_action_func(tmp[5:])
+		if action == "REPLACEALL":
+		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(0)))
+		elif action == "REPLACE":
+		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(1)))
+		elif action == "NOREPLACE":
+		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(2)))
+		elif action == "ABORT":
+		    self.SendManagerPacket(frame_address, "Post", ("CopyPause", str(3)))
+	    elif token == stop_action:
+		break
+	    else:
+		raise Exception("Unexepected protocol %s token during file transfer" % str(tmp))
+
+	# FIXME: send final response packet
+
 
 
 
@@ -133,18 +177,37 @@ class EFrameProto:
 	    raise Exception("Received unexpected reply")
 	return tmp[5:]
 
+
     def SendByeBye(self):
 
 	self.SendBroadcastPacket("ByeBye", (self.serial_number, self.local_name))
+
 
     def ReadStorageStatus(self, frame_address):
 
 	return self.DoCommand(frame_address, "Read", ("StorageStatus", ))
 
+
     def ReadSystemStatus(self, frame_address):
 	
 	return self.DoCommand(frame_address, "Read", ("SystemStatus", ))
 
+
     def ReadRegisterStatus(self, frame_address):
 
 	return self.DoCommand(frame_address, "Register", ("RegisterStatus", ) + self.BuildRegisterPacket())
+
+
+    def TransferPhotos(self, frame_address, progress_func, copy_action_func):
+	
+	self.DoTransfer(frame_address, 0, "CopyStart", "CopyStop", progress_func, copy_action_func)
+
+
+    def TransferMusic(self, frame_address, progress_func, copy_action_func):
+	
+	self.DoTransfer(frame_address, 1, "CopyStart", "CopyStop", progress_func, copy_action_func)
+
+
+    def TransferRss(self, frame_address, progress_func, copy_action_func):
+	
+	self.DoTransfer(frame_address, 2, "RssFileStart", "RssFileStop", progress_func, copy_action_func)
