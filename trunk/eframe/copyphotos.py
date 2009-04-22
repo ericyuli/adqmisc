@@ -13,6 +13,7 @@ def progress(arg):
 
 def copy_action(arg):
     print arg
+    return "REPLACEALL"
 
 # do the transfer
 eframe.TransferPhotos(progress, copy_action)

@@ -1,0 +1,3 @@
+adq_uk flickr
+http://www.flickr.com/photos/adq_uk
+http://api.flickr.com/services/feeds/photos_public.gne?id=12670718@N03&lang=en-us&format=rss_200
