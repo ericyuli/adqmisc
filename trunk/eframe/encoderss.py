@@ -6,7 +6,7 @@ from EFrameRSSFeedList import *
 import sys
 
 if len(sys.argv) != 3:
-    print >>sys.stderr, "Syntax: updaterss <source file> <destination file>"
+    print >>sys.stderr, "Syntax: encoderss <source file> <destination file>"
     sys.exit(1)
 srcfile = sys.argv[1]
 dstfile = sys.argv[2]
@@ -18,7 +18,7 @@ while True:
     name = src.readline()
     orig_url = src.readline()
     feed_url = src.readline()
-    if len(name) == 0:
+    if len(name) == 0 or len(orig_url) == 0 or len(feed_url) == 0:
 	break
 
     rssenc.AddFeed(name.strip(), orig_url.strip(), feed_url.strip())
