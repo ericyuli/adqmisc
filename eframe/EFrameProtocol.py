@@ -40,21 +40,28 @@ def WaitForResponse(tcp_server, timeout = None):
 
 
 
+class EFrame:
 
-
-class EFrameLocator:
 
     def __init__(self, 
 		 local_ip, 
 		 broadcast_ip = "255.255.255.255",
 		 broadcast_port = 21900,
+		 ftp_port = 20021,
+		 ftp_username = "PF110",
+		 ftp_password = "QmitwPF",
 		 serial_number = gethostname(),
-		 local_name = gethostname()):
+		 local_name = gethostname(),
+		 timeout = 10.0 ):
 
 	self.local_ip = local_ip
 	self.broadcast_address = (broadcast_ip, broadcast_port)
+	self.ftp_port = ftp_port
+	self.ftp_username = ftp_username
+	self.ftp_password = ftp_password
 	self.serial_number = serial_number
 	self.local_name = local_name
+	self.timeout = timeout
 
 	# Create a udp socket to broadcast on
 	self.udp_socket = socket(AF_INET, SOCK_DGRAM)
@@ -62,9 +69,26 @@ class EFrameLocator:
 
 	# Create a TCP server socket to listen for connects on
 	self.tcp_server = socket(AF_INET, SOCK_STREAM)
-	self.tcp_server.listen(10)
+	self.tcp_server.listen(1)
 	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
 	self.local_manager_port = self.tcp_server.getsockname()[1]
+
+	# Originally I tried not sending a broadcast here, and just using the RegisterFrame() call below. However I found
+	# that the frame then doesn't work properly after a complete powerdown-powerup cycle; e.g. the ftp port is 
+	# completely wrong. Switching back to using a broadcast seemed to fix this :(
+	searchpkt = (str(self.ftp_port), str(self.local_manager_port), self.serial_number, self.local_name, self.ftp_username, self.ftp_password, str(1), self.local_ip)
+	self.SendBroadcastPacket("Search", searchpkt)
+	while True:
+	    tmp = WaitForResponse(self.tcp_server, 5.0)
+	    if tmp == None:
+		break
+	    if tmp[0] == 'Register' and tmp[4] == 'RegisterStatus':
+		self.serial_number = tmp[0]
+		self.frame_name = tmp[1].strip('"')
+		self.frame_address = (tmp[12], int(tmp[6]))
+		return
+
+	raise Exception("Failed to contact eframe")
 
 
     def __del__(self):
@@ -79,79 +103,9 @@ class EFrameLocator:
 	self.udp_socket.sendto(FormatPacket(data), self.broadcast_address)
 
 
-    def FindEFrames(self, timeout):
-
-	# Build the Search packet
-	# FIXME: unsure what the '1' is for
-	searchpkt = ("", str(self.local_manager_port), self.serial_number, self.local_name, "", "", str(1), self.local_ip)
-
-	# Loop, looking for eframes
-	start = time.time()
-	while time.time() < start + timeout:
-
-	    # broadcast the search packet
-	    self.SendBroadcastPacket("Search", searchpkt)
-	    
-	    # Deal with anything which has connected to us
-	    while True:
-		tmp = WaitForResponse(self.tcp_server, 1.0)
-		if tmp == None:
-		    break
-		if tmp[0] == 'Register' and tmp[4] == 'RegisterStatus':
-		    return ((tmp[12], int(tmp[3])), tmp[7], tmp[8].strip('"'))
-
-	# FIXME: allow >1 eframe
-
     def SendByeBye(self):
 
 	self.SendBroadcastPacket("ByeBye", (self.serial_number, self.local_name))
-
-
-
-
-
-
-class EFrame:
-
-    def __init__(self, 
-		 local_ip, 
-		 frame_address,
-		 ftp_port = 20021,
-		 ftp_username = "PF110",
-		 ftp_password = "QmitwPF",
-		 serial_number = gethostname(),
-		 local_name = gethostname(),
-		 timeout = 10.0 ):
-
-	self.local_ip = local_ip
-	self.frame_address = frame_address
-	self.ftp_port = ftp_port
-	self.ftp_username = ftp_username
-	self.ftp_password = ftp_password
-	self.serial_number = serial_number
-	self.local_name = local_name
-	self.timeout = timeout
-
-	# Create a TCP server socket to listen for connects on
-	self.tcp_server = socket(AF_INET, SOCK_STREAM)
-	self.tcp_server.listen(1)
-	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
-	self.local_manager_port = self.tcp_server.getsockname()[1]
-
-	# Re-register the supplied frame with /this/ instance
-	self.RegisterFrame()
-	tmp = self.ReadSystemStatus()
-	self.serial_number = tmp[0]
-	self.frame_name = tmp[1].strip('"')
-
-
-    def __del__(self):
-	self.tcp_server.close()
-
-
-    def __str__(self):
-
-	return "%s(%s) @%s" % (self.frame_name, self.frame_serial, self.frame_address)
 
 
     def SendManagerPacket(self, packet_type, data):
@@ -211,8 +165,6 @@ class EFrame:
 	    else:
 		raise Exception("Unexpected protocol %s token during file transfer" % str(tmp))
 
-	# FIXME: send final response packet
-
 
 
 
@@ -241,14 +193,16 @@ class EFrame:
     def TransferPhotos(self, progress_func, copy_action_func):
 	
 	self.DoTransfer(0, "CopyStart", "CopyStop", progress_func, copy_action_func)
+	self.SendManagerPacket("Post-Resp", ("CopyStop", str(0))) # FIXME: unsure what the 0 is for
 
 
     def TransferMusic(self, progress_func, copy_action_func):
 	
 	self.DoTransfer(1, "CopyStart", "CopyStop", progress_func, copy_action_func)
+	self.SendManagerPacket("Post-Resp", ("CopyStop", str(0))) # FIXME: unsure what the 0 is for
 
 
     def TransferRss(self, progress_func, copy_action_func):
 	
 	self.DoTransfer(2, "RssFileStart", "RssFileStop", progress_func, copy_action_func)
-
+	self.SendManagerPacket("Post-Resp", ("RssFileStop", str(0), str(3))) # FIXME: unsure what the 0 or 3 are for
