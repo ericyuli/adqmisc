@@ -5,14 +5,8 @@ import EFrameProtocol
 from EFrameRSSFeedList import *
 import sys
 
-# Argument handling
-if len(sys.argv) < 1 or len(sys.argv) > 2:
-    print >>sys.stderr, "Syntax: copymusic <local ip>"
-    sys.exit(1)
-local_ip = sys.argv[1]
-
 # Create an eframe instance
-eframe = EFrameProtocol.EFrame(local_ip)
+eframe = EFrameProtocol.EFrame()
 
 def progress(arg):
     print arg
@@ -24,5 +18,4 @@ def copy_action(arg):
 eframe.TransferMusic(progress, copy_action)
 
 # Shutdown
-locator = EFrameProtocol.EFrameLocator(local_ip)
-locator.SendByeBye()
+eframe.SendByeBye()

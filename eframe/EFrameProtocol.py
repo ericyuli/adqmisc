@@ -42,9 +42,8 @@ def WaitForResponse(tcp_server, timeout = None):
 
 class EFrame:
 
-
     def __init__(self, 
-		 local_ip, 
+		 local_ip = gethostbyname(gethostname()), 
 		 broadcast_ip = "255.255.255.255",
 		 broadcast_port = 21900,
 		 ftp_port = 20021,
