@@ -16,7 +16,7 @@ def copy_action(arg):
     return "REPLACEALL"
 
 # do the transfer
-eframe.TransferMusic(progress, copy_action)
+eframe.TransferRss(progress, copy_action)
 
 # Shutdown
 eframe.SendByeBye()
