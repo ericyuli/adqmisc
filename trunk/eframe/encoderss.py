@@ -16,12 +16,12 @@ src = open(srcfile)
 
 while True:
     name = src.readline()
+    rss_url = src.readline()
     orig_url = src.readline()
-    feed_url = src.readline()
-    if len(name) == 0 or len(orig_url) == 0 or len(feed_url) == 0:
+    if len(name) == 0 or len(rss_url) == 0 or len(orig_url) == 0:
 	break
 
-    rssenc.AddFeed(name.strip(), orig_url.strip(), feed_url.strip())
+    rssenc.AddFeed(name.strip(), rss_url.strip(), orig_url.strip())
 
 dst = open(dstfile, "w")
 dst.write(rssenc.Encode())

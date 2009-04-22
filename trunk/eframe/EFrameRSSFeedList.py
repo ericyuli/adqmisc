@@ -11,7 +11,7 @@ class EFrameRSSFeedList:
 	self.__feeds += ((title, rss_url, original_url), )
 
     def Encode(self):
-	raw = struct.pack('4sBB', "RSS ", 2, 0)
+	raw = struct.pack('<4sH', "RSS ", len(self.__feeds))
 
 	for feed in self.__feeds:
 	    raw += struct.pack('64s', feed[0][:64])
