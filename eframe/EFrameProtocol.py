@@ -29,7 +29,7 @@ def WaitForResponse(tcp_server, timeout = None):
     try:
 	pkt = mgr_in_socket.recv(1024).strip().split(",")
 	if pkt[1] != "PF110-DEV" or pkt[2] != "PF110-PC":
-	    raise Exception("Receieved bad packet")
+	    raise Exception("Receieved bad packet: " + str(pkt))
 	return pkt
     except:
 	return None
@@ -123,7 +123,7 @@ class EFrame:
 	self.SendManagerPacket(action, data)
 	tmp = WaitForResponse(self.tcp_server, self.timeout)
 	if tmp == None or (tmp[0] != action + "-Resp") or (tmp[4] != data[0]):
-	    raise Exception("Received unexpected reply")
+	    raise Exception("Received unexpected reply: " + str(tmp))
 	if int(tmp[5]) != 0:
 	    print "Warning: Value expected to be zero was actually %s" % tmp[5]
 	return tmp[6:]
@@ -138,7 +138,7 @@ class EFrame:
 	    if tmp == None:
 		raise Exception("Transfer timed out")
 	    if tmp[0] != 'Post':
-		raise Exception("Received unexpected reply")
+		raise Exception("Received unexpected reply:" + str(tmp))
 	    
 	    # Deal with the response
 	    token = tmp[4]
