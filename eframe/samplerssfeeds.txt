@@ -1,3 +1,6 @@
 adq_uk flickr
 http://api.flickr.com/services/feeds/photos_public.gne?id=12670718@N03&lang=en-us&format=rss_200
 http://www.flickr.com/photos/adq_uk
+NASA image of the day
+http://www.nasa.gov/rss/image_of_the_day.rss
+http://www.nasa.gov/rss/
