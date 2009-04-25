@@ -17,7 +17,6 @@ eframe = EFrameProtocol.EFrame()
 
 # Create and start an ftp server instance
 eframeftpd = EFrameFTPServer.EFrameFTPServer(eframe)
-eframeftpd.Start(ftp_dir)
 
 # functions to handle transfer events
 def progress(arg):

@@ -41,7 +41,6 @@ class EFrameFTPServer:
     def __init__(self, eframe):
 	self.__eframe = eframe
 
-    def Start(self, ftp_dir):
 	authorizer = ftpserver.DummyAuthorizer()
 	authorizer.add_user(self.__eframe.ftp_username, self.__eframe.ftp_password, ftp_dir, perm="elr")
 	ftp_handler = EFrameFTPHandler
