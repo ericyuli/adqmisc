@@ -7,5 +7,5 @@ The code is available [http://code.google.com/p/adqmisc/source/browse/trunk/efra
 Utilities:
 ||copymusic||Copies mp3s from `<ftpdir>`/vCopyFolder to the eframe||
 ||copyphotos||Copies jpgs from `<ftpdir>`/vCopyFolder to the eframe||
-||copyrss||Copies `<ftpdir>`/vRssFolder/PF110.RSS to the eframe||
+||copyrss||Copies the file `<ftpdir>`/vRssFolder/PF110.RSS to the eframe||
 ||encoderss||Encodes a plaintext list of RSS feeds into the binary PF110.RSS file. See samplerssfeeds.txt for an example||
