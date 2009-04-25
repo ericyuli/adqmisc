@@ -1,4 +1,4 @@
-#summary Python support for the BT EFrame 1000
+#summary Python support for the BT EFrame 1000 digital photo frame
 
 This code implements the protocol for controlling a BT Eframe 1000 from python. It requires [http://code.google.com/p/pyftpdlib/ pyftpdlib].
 
