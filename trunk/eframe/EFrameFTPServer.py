@@ -36,6 +36,7 @@ class EFrameAbstractedFS(ftpserver.AbstractedFS):
 	except:
 	    return open(filename.replace('org_', ''), mode)
 
+
 class EFrameFTPServer:
 
     def __init__(self, eframe, ftp_dir):
@@ -48,7 +49,13 @@ class EFrameFTPServer:
 	ftp_handler.abstracted_fs = EFrameAbstractedFS
 	self.__ftpd = ftpserver.FTPServer(("0.0.0.0", self.__eframe.ftp_port), ftp_handler)
 	self.__ftp_thread = threading.Thread(target=self.__ftpd.serve_forever)
+	self.__ftp_thread.setDaemon(True)
+	ftpserver.log = self.nolog
+	ftpserver.logline = self.nolog
 	self.__ftp_thread.start()
+
+    def nolog(self, msg):
+	pass
 
     def Stop(self):
 	self.__ftpd.close_all()

@@ -2,41 +2,7 @@
 from socket import *
 import struct
 import time
-
-
-
-def FormatPacket(data):
-
-    data = [x.replace(",", "_") for x in data]
-    data = ",".join(data)
-    data += "\r\n"
-    return data
-
-
-def WaitForResponse(tcp_server, timeout = None):
-
-    # Wait for something to connect to us
-    mgr_in_socket = None
-    tcp_server.settimeout(timeout)
-    try:
-	mgr_in_socket = tcp_server.accept()[0]
-    except:
-	return None
-
-    # Read the response line and parse it
-    mgr_in_socket.setblocking(1)
-    mgr_in_socket.settimeout(timeout)
-    try:
-	pkt = mgr_in_socket.recv(1024).strip().split(",")
-	if pkt[1] != "PF110-DEV" or pkt[2] != "PF110-PC":
-	    raise Exception("Receieved bad packet: " + str(pkt))
-	return pkt
-    except:
-	return None
-    finally:
-	mgr_in_socket.close()
-
-
+import threading
 
 
 
@@ -72,13 +38,20 @@ class EFrame:
 	self.tcp_server.setsockopt(SOL_SOCKET, SO_LINGER, struct.pack('ii', 1, 0))
 	self.local_manager_port = self.tcp_server.getsockname()[1]
 
+	# Create a thread to listen for connections and data on the above tcp_server socket
+	self.rx_queue = []
+	self.rx_queue_lock = threading.Lock()
+	self.tcp_server_thread = threading.Thread(target=self.TcpListener)
+	self.tcp_server_thread.setDaemon(True)
+	self.tcp_server_thread.start()
+
 	# Originally I tried not sending a broadcast here, and just using the RegisterFrame() call below. However I found
 	# that the frame then doesn't work properly after a complete powerdown-powerup cycle; e.g. the ftp port is 
 	# completely wrong. Switching back to using a broadcast seemed to fix this :(
 	searchpkt = (str(self.ftp_port), str(self.local_manager_port), self.serial_number, self.local_name, self.ftp_username, self.ftp_password, str(1), self.local_ip)
 	self.SendBroadcastPacket("Search", searchpkt)
 	while True:
-	    tmp = WaitForResponse(self.tcp_server, 5.0)
+	    tmp = self.WaitForResponse(5.0)
 	    if tmp == None:
 		break
 	    if tmp[0] == 'Register' and tmp[4] == 'RegisterStatus':
@@ -95,11 +68,65 @@ class EFrame:
 	self.udp_socket.close()
 	self.tcp_server.close()
 
+    def TcpListener(self):
+    
+	while True:
+	    try:
+		mgr_in_socket = self.tcp_server.accept()[0]
+
+		self.rx_queue_lock.acquire()
+		self.rx_queue.insert(0, mgr_in_socket.recv(1024).strip())
+		mgr_in_socket.close()
+		self.rx_queue_lock.release()
+	    except:
+		pass
+
+
+    def FormatPacket(self, data):
+
+	data = [x.replace(",", "_") for x in data]
+	data = ",".join(data)
+	data += "\r\n"
+	return data
+
+
+    def WaitForResponse(self, timeout = None):
+
+	# Wait for the tcp listener to acquire some data
+	rx_data = None
+	start = time.time()
+	while rx_data == None:
+
+	    # handle timeout
+	    if timeout != None:
+		if start + timeout < time.time():
+		    break
+	    
+	    # check if we have a connection
+	    self.rx_queue_lock.acquire()
+	    if len(self.rx_queue) > 0:
+		rx_data = self.rx_queue.pop()
+	    self.rx_queue_lock.release()
+
+	    # delay if no data left
+	    if rx_data == None:
+		time.sleep(0.001)
+
+	# still don't have data? => timed out
+	if rx_data == None:
+	    raise Exception("Timed out waiting for response")
+
+	# Read the response line and parse it
+	pkt = rx_data.split(",")
+	if pkt[1] != "PF110-DEV" or pkt[2] != "PF110-PC":
+	    raise Exception("Receieved bad packet: " + str(pkt))
+	return pkt
+
 
     def SendBroadcastPacket(self, packet_type, data):
 
 	data = (packet_type, "PF110-PC", "PF110-DEV") + data
-	self.udp_socket.sendto(FormatPacket(data), self.broadcast_address)
+	self.udp_socket.sendto(self.FormatPacket(data), self.broadcast_address)
 
 
     def SendByeBye(self):
@@ -114,14 +141,14 @@ class EFrame:
 	mgr_out_socket.connect(self.frame_address)
 
 	data = (packet_type, "PF110-PC", "PF110-DEV", str(self.local_manager_port)) + data
-	mgr_out_socket.send(FormatPacket(data))
+	mgr_out_socket.send(self.FormatPacket(data))
 	mgr_out_socket.close()
 
 
     def DoCommand(self, action, data):
 
 	self.SendManagerPacket(action, data)
-	tmp = WaitForResponse(self.tcp_server, self.timeout)
+	tmp = self.WaitForResponse(self.timeout)
 	if tmp == None or (tmp[0] != action + "-Resp") or (tmp[4] != data[0]):
 	    raise Exception("Received unexpected reply: " + str(tmp))
 	if int(tmp[5]) != 0:
@@ -133,13 +160,16 @@ class EFrame:
 
 	self.DoCommand("Post", (start_action, str(1), str(file_type_id))) # FIXME: not sure what the '1' here is for
 	while True:
+
+	    # FIXME: FFS! the bloody thing doesn't always send a response!!!! need to check if a file has been ftped.
+
 	    # wait for the next response
-	    tmp = WaitForResponse(self.tcp_server, None)
+	    tmp = self.WaitForResponse(None)
 	    if tmp == None:
 		raise Exception("Transfer timed out")
 	    if tmp[0] != 'Post':
 		raise Exception("Received unexpected reply:" + str(tmp))
-	    
+
 	    # Deal with the response
 	    token = tmp[4]
 	    if token == "ProgressStatus":
