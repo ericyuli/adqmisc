@@ -17,20 +17,20 @@ class EFrameFTPHandler(ftpserver.FTPHandler):
 class EFrameAbstractedFS(ftpserver.AbstractedFS):
 
     def getsize(self, path):
-        """Return the size of the specified file in bytes."""
+        """Workaround for eframe org_XXX weirdness."""
 	try:
 	    return os.path.getsize(path)
 	except:
 	    return os.path.getsize(path.replace('org_', ''))
 
     def isfile(self, path):
-        """Return True if path is a file."""
+        """Workaround for eframe org_XXX weirdness."""
         if os.path.isfile(path):
 	    return True
 	return os.path.isfile(path.replace('org_', ''))
 
     def open(self, filename, mode):
-        """Open a file returning its handler."""
+        """Workaround for eframe org_XXX weirdness."""
 	try:
 	    return open(filename, mode)
 	except:
