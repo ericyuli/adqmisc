@@ -38,7 +38,7 @@ class EFrameAbstractedFS(ftpserver.AbstractedFS):
 
 class EFrameFTPServer:
 
-    def __init__(self, eframe):
+    def __init__(self, eframe, ftp_dir):
 	self.__eframe = eframe
 
 	authorizer = ftpserver.DummyAuthorizer()
