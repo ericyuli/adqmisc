@@ -8,7 +8,7 @@ import EFrameFTPServer
 
 # Check args
 if len(sys.argv) != 2:
-    print >>sys.stderr, "Syntax: copymusic <ftp transfer directory>"
+    print >>sys.stderr, "Syntax: copyrss <ftp transfer directory>"
     sys.exit(1)
 ftp_dir = sys.argv[1]
 
@@ -17,7 +17,6 @@ eframe = EFrameProtocol.EFrame()
 
 # Create and start an ftp server instance
 eframeftpd = EFrameFTPServer.EFrameFTPServer(eframe)
-eframeftpd.Start(ftp_dir)
 
 # Functions to handle transfer events
 def progress(arg):
