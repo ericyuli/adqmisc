@@ -10,44 +10,44 @@ file = open(sys.argv[1], "rb")
 compressed = []
 eof = False
 while eof == False:
-	# See if we can find a deflated compressed bit
-	curpos = file.tell()
-	decompressor = zlib.decompressobj(-15)
-	rawlength = 0
-	try:
-		uncompressedlength = 0
-		while len(decompressor.unused_data) == 0:
-			buf = file.read(256)
-			if len(buf) == 0:
-				eof = True
-				break
-			if len(decompressor.unconsumed_tail):
-				buf = decompressor.unconsumed_tail + buf
-			uncompressedlength += len(decompressor.decompress(buf))
-			rawlength += len(buf)
-		
-		rawlength -= len(decompressor.unused_data)
-		if uncompressedlength > 0:
-			compressed += ((curpos, rawlength), )
-			print "COMPRESSED %08x RAW[%08x] UNCOMP[%08x]" % (curpos, rawlength, uncompressedlength)
-		file.seek(curpos + rawlength)
-		
-	except zlib.error:
-		file.seek(curpos+1)
+    # See if we can find a deflated compressed bit
+    curpos = file.tell()
+    decompressor = zlib.decompressobj(-15)
+    rawlength = 0
+    try:
+        uncompressedlength = 0
+        while len(decompressor.unused_data) == 0:
+            buf = file.read(256)
+            if len(buf) == 0:
+                eof = True
+                break
+            if len(decompressor.unconsumed_tail):
+                buf = decompressor.unconsumed_tail + buf
+            uncompressedlength += len(decompressor.decompress(buf))
+            rawlength += len(buf)
+        
+        rawlength -= len(decompressor.unused_data)
+        if uncompressedlength > 0:
+            compressed += ((curpos, rawlength), )
+            print "COMPRESSED %08x RAW[%08x] UNCOMP[%08x]" % (curpos, rawlength, uncompressedlength)
+        file.seek(curpos + rawlength)
+        
+    except zlib.error:
+        file.seek(curpos+1)
 
 
 # Extract the compressed bits
 for position in compressed:
-	file.seek(position[0])
-	
-	decompressor = zlib.decompressobj(-15)
-	out = open("extracted/%08x.bin" % position[0], "wb")
-	while len(decompressor.unused_data) == 0:
-		buf = file.read(256)
-		if len(buf) == 0:
-			eof = True
-			break
-		if len(decompressor.unconsumed_tail):
-			buf = decompressor.unconsumed_tail + buf
-		out.write(decompressor.decompress(buf))
-	out.close()
+    file.seek(position[0])
+    
+    decompressor = zlib.decompressobj(-15)
+    out = open("extracted/%08x.bin" % position[0], "wb")
+    while len(decompressor.unused_data) == 0:
+        buf = file.read(256)
+        if len(buf) == 0:
+            eof = True
+            break
+        if len(decompressor.unconsumed_tail):
+            buf = decompressor.unconsumed_tail + buf
+        out.write(decompressor.decompress(buf))
+    out.close()
