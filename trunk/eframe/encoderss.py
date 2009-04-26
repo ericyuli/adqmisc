@@ -19,7 +19,7 @@ while True:
     rss_url = src.readline()
     orig_url = src.readline()
     if len(name) == 0 or len(rss_url) == 0 or len(orig_url) == 0:
-	break
+        break
 
     rssenc.AddFeed(name.strip(), rss_url.strip(), orig_url.strip())
 
