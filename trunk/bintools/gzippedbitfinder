@@ -12,7 +12,7 @@ eof = False
 while eof == False:
 	# See if we can find a deflated compressed bit
 	curpos = file.tell()
-	decompressor = zlib.decompressobj(-15)
+	decompressor = zlib.decompressobj()
 	rawlength = 0
 	try:
 		uncompressedlength = 0
@@ -40,7 +40,7 @@ while eof == False:
 for position in compressed:
 	file.seek(position[0])
 	
-	decompressor = zlib.decompressobj(-15)
+	decompressor = zlib.decompressobj()
 	out = open("extracted/%08x.bin" % position[0], "wb")
 	while len(decompressor.unused_data) == 0:
 		buf = file.read(256)
