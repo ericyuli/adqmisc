@@ -8,7 +8,7 @@ class XmlResourceChunk:
 
     def __init__(self, rawChunk):
         self.chunks = ()
-        for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).ReadChunks():
+        for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
             self.chunks += (subChunk, )
         
         self.XmlDoc = xml.dom.minidom.Document()
