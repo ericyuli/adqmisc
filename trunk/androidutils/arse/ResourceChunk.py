@@ -1,0 +1,166 @@
+# -*- coding: utf-8 -*-
+
+import struct
+import StringIO
+import XmlResourceChunk
+
+class ResourceChunkStream:
+    
+    def __init__(self, src):
+        if type(src) == file:
+            self.stream = src
+        elif type(src) == str:
+            self.stream = StringIO.StringIO(src)
+
+    def ReadChunks(self):
+        
+        while True:
+            chunkHeaderData = self.stream.read(8)
+            if len(chunkHeaderData) != 8:
+                return
+
+            rawChunk = ResourceChunk(chunkHeaderData, self.stream)
+            if rawChunk.TypeCode == ResourceChunk.RES_NULL_TYPE:
+                yield NullResourceChunk(rawChunk)
+            elif rawChunk.TypeCode == ResourceChunk.RES_STRING_POOL_TYPE:
+                self.stringPool = StringPoolResourceChunk(rawChunk)
+                yield self.stringPool
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_TYPE:
+                yield XmlResourceChunk.XmlResourceChunk(rawChunk)
+
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_RESOURCE_MAP_TYPE:
+                yield XmlResourceChunk.XmlResourceMapChunk(rawChunk, self.stringPool)
+
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_START_NAMESPACE_TYPE:
+                yield XmlResourceChunk.XmlNodeStartNamespaceChunk(rawChunk, self.stringPool)
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_END_NAMESPACE_TYPE:
+                yield XmlResourceChunk.XmlNodeEndNamespaceChunk(rawChunk, self.stringPool)
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_START_ELEMENT_TYPE:
+                yield XmlResourceChunk.XmlNodeStartElementChunk(rawChunk, self.stringPool)
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_END_ELEMENT_TYPE:
+                yield XmlResourceChunk.XmlNodeEndElementChunk(rawChunk, self.stringPool)
+            elif rawChunk.TypeCode == ResourceChunk.RES_XML_CDATA_TYPE:
+                yield XmlResourceChunk.XmlNodeCDATAChunk(rawChunk, self.stringPool)
+
+            else:
+                raise Exception("Unknown chunk code 0x%04x" % rawChunk.TypeCode)
+
+
+
+def ParseValue(data, stringPool):
+    (typedValueSize, zero, dataType, data) = struct.unpack("<HBBI", data)
+
+    if dataType == ResourceChunk.TYPE_NULL:
+        return None
+    elif dataType == ResourceChunk.TYPE_REFERENCE:
+        return "REFERENCE:0x%x" % data
+    elif dataType == ResourceChunk.TYPE_ATTRIBUTE:
+        return "ATTRIBUTE:0x%x" % data
+    elif dataType == ResourceChunk.TYPE_STRING:
+        return stringPool.getString(data)
+    elif dataType == ResourceChunk.TYPE_FLOAT:
+        return "FLOAT: %x" % data # FIXME
+    elif dataType == ResourceChunk.TYPE_DIMENSION:
+        return "DIMENSION: %x" % data # FIXME
+    elif dataType == ResourceChunk.TYPE_FRACTION:
+        return "FRACTION: %x" % data # FIXME
+
+    elif dataType == ResourceChunk.TYPE_INT_DEC:
+        return "%i" % data
+    elif dataType == ResourceChunk.TYPE_INT_HEX:
+        return "0x%x" % data
+    elif dataType == ResourceChunk.TYPE_INT_BOOLEAN:
+        return "false" if (data == 0) else "true"
+
+    elif dataType == ResourceChunk.TYPE_INT_COLOR_ARGB8:
+        return "#%08x" % data
+    elif dataType == ResourceChunk.TYPE_INT_COLOR_RGB8:
+        return "#%06x" % data
+    elif dataType == ResourceChunk.TYPE_INT_COLOR_ARGB4:
+        return "#%04x" % data
+    elif dataType == ResourceChunk.TYPE_INT_COLOR_RGB4:
+        return "#%03x" % data
+
+    else:
+        raise Exception("Unsupported data type 0x%x" % dataType)
+
+
+
+
+class ResourceChunk:
+    
+    RES_NULL_TYPE               = 0x0000
+    RES_STRING_POOL_TYPE        = 0x0001
+    RES_TABLE_TYPE              = 0x0002
+    RES_XML_TYPE                = 0x0003
+
+    RES_XML_START_NAMESPACE_TYPE= 0x0100
+    RES_XML_END_NAMESPACE_TYPE  = 0x0101
+    RES_XML_START_ELEMENT_TYPE  = 0x0102
+    RES_XML_END_ELEMENT_TYPE    = 0x0103
+    RES_XML_CDATA_TYPE          = 0x0104
+    RES_XML_RESOURCE_MAP_TYPE   = 0x0180
+
+
+    TYPE_NULL = 0x00
+    TYPE_REFERENCE = 0x01
+    TYPE_ATTRIBUTE = 0x02
+    TYPE_STRING = 0x03
+    TYPE_FLOAT = 0x04
+    TYPE_DIMENSION = 0x05
+    TYPE_FRACTION = 0x06
+
+    TYPE_INT_DEC = 0x10
+    TYPE_INT_HEX = 0x11
+    TYPE_INT_BOOLEAN = 0x12
+
+    TYPE_INT_COLOR_ARGB8 = 0x1c
+    TYPE_INT_COLOR_RGB8 = 0x1d
+    TYPE_INT_COLOR_ARGB4 = 0x1e
+    TYPE_INT_COLOR_RGB4 = 0x1f
+
+
+    def __init__(self, chunkHeader, stream):
+        
+        (self.TypeCode, headerSize, dataSize) = struct.unpack("<HHI", chunkHeader)
+        self.Header = stream.read(headerSize - 8)
+        self.Data = stream.read(dataSize - headerSize)
+
+
+class NullResourceChunk:
+
+    def __init__(self, rawChunk):
+        pass
+
+class StringPoolResourceChunk:
+
+    def __init__(self, rawChunk):
+        (stringCount, styleCount, flags, stringsStart, stylesStart) = struct.unpack("<IIIII", rawChunk.Header)
+        stringsStart -= 28
+        stylesStart -= 28
+
+        dataIdx = 0
+        self._strings = ()
+        while stringCount > 0:
+            stringIdx = stringsStart + struct.unpack("<I", rawChunk.Data[dataIdx:dataIdx+4])[0]
+
+            (stringLen, ) = struct.unpack("<H", rawChunk.Data[stringIdx:stringIdx+2])
+            stringIdx += 2
+
+            if stringLen & 0x8000:
+                stringLen = ((stringLen & 0x7fff) << 16) | struct.unpack("<H", rawChunk.Data[stringIdx:stringIdx+2])
+                stringIdx += 2
+
+            self._strings += (unicode(rawChunk.Data[stringIdx:stringIdx + (stringLen*2)], 'utf16'), )
+
+            dataIdx += 4
+            stringCount -= 1
+
+        # FIXME: handle styles
+
+    def getString(self, idx): 
+        if idx == -1:
+            return None
+        if idx >= len(self._strings):
+            return None
+        return self._strings[idx]
