@@ -7,13 +7,15 @@ import ResourceChunk
 class XmlResourceChunk:
 
     def __init__(self, rawChunk):
+
+        # Load in the sub-chunks which are the xml document
         self.chunks = ()
         for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
             self.chunks += (subChunk, )
         
+        # Now, rebuild the DOM document from the chunks loaded above
         self.XmlDoc = xml.dom.minidom.Document()
         curNode = self.XmlDoc
-
         namespaces = []
         for chunk in self.chunks:
             if isinstance(chunk, XmlNodeStartNamespaceChunk):
