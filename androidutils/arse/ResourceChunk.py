@@ -13,7 +13,10 @@ class ResourceChunkStream:
         elif type(src) == str:
             self.stream = StringIO.StringIO(src)
 
-    def ReadChunks(self):
+    def tell(self):
+        return self.stream.tell()
+
+    def readChunks(self):
         
         while True:
             chunkHeaderData = self.stream.read(8)
@@ -45,6 +48,14 @@ class ResourceChunkStream:
             elif rawChunk.TypeCode == ResourceChunk.RES_XML_CDATA_TYPE:
                 yield XmlResourceChunk.XmlNodeCDATAChunk(rawChunk, self.stringPool)
 
+            elif rawChunk.TypeCode == ResourceChunk.RES_TABLE_PACKAGE_TYPE:
+                yield TableResourceChunk.TablePackageChunk(rawChunk)
+            elif rawChunk.TypeCode == ResourceChunk.RES_TABLE_TYPE_TYPE:
+                yield TableResourceChunk.TableTypeChunk(rawChunk)
+            elif rawChunk.TypeCode == ResourceChunk.RES_TABLE_TYPE_SPEC_TYPE:
+                yield TableResourceChunk.TableTypeSpecChunk(rawChunk)
+
+
             else:
                 raise Exception("Unknown chunk code 0x%04x" % rawChunk.TypeCode)
 
@@ -65,9 +76,9 @@ def ParseValue(data, stringPool):
     elif dataType == ResourceChunk.VALUE_TYPE_FLOAT:
         return "FLOAT: %f" % struct.unpack("<f", data)
     elif dataType == ResourceChunk.VALUE_TYPE_DIMENSION:
-        return "DIMENSION: %x" % data # FIXME
+        return "DIMENSION: %x" % data                           # FIXME: format properly
     elif dataType == ResourceChunk.VALUE_TYPE_FRACTION:
-        return "FRACTION: %x" % data # FIXME
+        return "FRACTION: %x" % data                            # FIXME: format properly
 
     elif dataType == ResourceChunk.VALUE_TYPE_INT_DEC:
         return "%i" % data
@@ -140,6 +151,7 @@ class NullResourceChunk:
     def __init__(self, rawChunk):
         pass
 
+
 class StringPoolResourceChunk:
 
     def __init__(self, rawChunk):
@@ -159,7 +171,7 @@ class StringPoolResourceChunk:
                 stringLen = ((stringLen & 0x7fff) << 16) | struct.unpack("<H", rawChunk.Data[stringIdx:stringIdx+2])
                 stringIdx += 2
 
-            self._strings += (unicode(rawChunk.Data[stringIdx:stringIdx + (stringLen*2)], 'utf16'), )
+            self._strings += (unicode(rawChunk.Data[stringIdx:stringIdx + (stringLen*2)], 'utf16').replace('\0', ''), )
 
             dataIdx += 4
             stringCount -= 1
