@@ -37,7 +37,10 @@ class TableResourceChunk:
                         curRestypeNode.setAttribute("id", "0x%x" % subChunk.typeId)
                         curRestypeNode.setAttribute("name", subChunk.name)
                         curPackageNode.appendChild(curRestypeNode)
-                        
+
+                        isAttribute = False
+                        if subChunk.name == 'attr': isAttribute = True
+                                                
                         # The fastItemConfigTable is a table for fast lookup for each resource item. They indicate which SPEC_CONFIG_XXX flags appear in
                         # more than one resourceconfig (i.e. have > 1 choice), and also which are public. We don't care since we're just 
                         # dumping everything anyway.
@@ -69,20 +72,46 @@ class TableResourceChunk:
                             curEntryNode.setAttribute("id", "0x%x" % entryId)
                             curEntryNode.setAttribute("name", entry[0])
                             if entry[1] & TableTypeChunk.FLAG_PUBLIC_ENTRY: curEntryNode.setAttribute("ispublic", "true")
-                            if entry[3]: valueNode.setAttribute("parentref", "@0x%08x" % entry[3])
+                            if entry[3]: curEntryNode.setAttribute("parentref", "@0x%08x" % entry[3])
                             curResourceNode.appendChild(curEntryNode)
 
                             if type(entry[2]) != tuple:
                                 curEntryNode.setAttribute("value", entry[2])
                             else:
                                 for value in entry[2]:
-                                    valueNode = self.XmlDoc.createElement("value")
+                                    if isAttribute:
+                                        valueNode = self.XmlDoc.createElement("value")
+                                        
+                                        if value[0] ==   0x01000000:
+                                            valueNode.setAttribute("allowedtypes", "0x%x" % int(value[1]))
+                                        elif value[0] == 0x01000001:
+                                            valueNode.setAttribute("minvalue", "%i" % int(value[1]))
+                                        elif value[0] == 0x01000002:
+                                            valueNode.setAttribute("maxvalue", "%i" % int(value[1]))
+                                        elif value[0] == 0x01000003:
+                                            valueNode.setAttribute("localisation", "suggested" if int(value[1]) != 0 else "notrequired")
+                                        elif value[0] == 0x01000004:
+                                            valueNode.setAttribute("quantity", "%i" % int(value[1]))
+                                        elif value[0] == 0x01000005:
+                                            valueNode.setAttribute("quantity", "zero")
+                                        elif value[0] == 0x01000006:
+                                            valueNode.setAttribute("quantity", "one")
+                                        elif value[0] == 0x01000007:
+                                            valueNode.setAttribute("quantity", "two")
+                                        elif value[0] == 0x01000008:
+                                            valueNode.setAttribute("quantity", "few")
+                                        elif value[0] == 0x01000009:
+                                            valueNode.setAttribute("quantity", "many")
+                                        else:
+                                            valueNode.setAttribute("name", "@0x%08x" % value[0])
+                                            valueNode.setAttribute("value", value[1])
+                                        curEntryNode.appendChild(valueNode)
 
-                                    # FIXME: need special handling for name for attribute resources
-
-                                    valueNode.setAttribute("name", "@0x%08x" % value[0])
-                                    valueNode.setAttribute("value", value[1])
-                                    curEntryNode.appendChild(valueNode)
+                                    else:
+                                        valueNode = self.XmlDoc.createElement("value")
+                                        valueNode.setAttribute("name", "@0x%08x" % value[0])
+                                        valueNode.setAttribute("value", value[1])
+                                        curEntryNode.appendChild(valueNode)
 
                             entryId += 1
 

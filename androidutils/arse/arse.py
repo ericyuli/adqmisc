@@ -7,6 +7,7 @@ import ResourceChunk
 import sys
 import xml.dom.ext
 
+print >>sys.stderr, sys.argv[1]
 test = ResourceChunk.ResourceChunkStream(open(sys.argv[1]))
 for chunk in test.readChunks():
     if isinstance(chunk, XmlResourceChunk.XmlResourceChunk):
