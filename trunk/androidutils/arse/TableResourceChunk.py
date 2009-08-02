@@ -7,11 +7,11 @@ class TableResourceChunk:
 
     def __init__(self, rawChunk):
 
-        (self.packageCount, ) = struct.unpack("<I", rawChunk.Header)
+        (packageCount, ) = struct.unpack("<I", rawChunk.Header)
 
-        self.chunks = ()
-        for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
-            self.chunks += (subChunk, )
+        self.packages = ()
+        for package in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
+            self.packages += (package, )
 
 
 class TablePackageChunk:
@@ -23,6 +23,7 @@ class TablePackageChunk:
         typeStringsPos -= len(rawChunk.Header) + 8
         keyStringsPos -= len(rawChunk.Header) + 8
 
+        # Process all the chunks inside this package
         typeStrings = None
         keyStrings = None
         subStream = ResourceChunk.ResourceChunkStream(rawChunk.Data)
@@ -44,6 +45,9 @@ class TablePackageChunk:
                 subChunk.resolveStrings(keyStrings)
 
             subStreamPos = subStream.tell()
+
+
+        # FIXME: restructure it into... something!
 
     
 class TableTypeSpecChunk:
@@ -102,14 +106,35 @@ class TableTypeChunk:
             curOffset += 8
 
             if (flags & TableTypeChunk.FLAG_COMPLEX_ENTRY) == 0: # a "simple" entry
-                simpleValue = ResourceChunk.ParseValue(rawChunk.Data[curOffset:curOffset + 8])
+                value = ResourceChunk.ParseValue(rawChunk.Data[curOffset:curOffset + 8])
             else: # a "complex" entry
                 (parentRef, mapCount) = struct.unpack("<II", rawChunk.Data[curOffset:curOffset + 8])
                 curOffset += 8
-                # FIXME
 
-        # FIXME: the restable_entry data
+                value = ()
+                for mapIdx in xrange(0, mapCount):
+                    (nameRef, ) = struct.unpack("<I", rawChunk.Data[curOffset:curOffset + 4])
+                    mapValue = ResourceChunk.ParseValue(rawChunk.Data[curOffset + 4:curOffset + 12])
+                    value += ([nameRef, mapValue], )
+                    curOffset += 12
+
+            self.entries += ([keyStringIdx, flags, value], )
 
     def resolveStrings(self, keyStrings):
-        pass
-        # FIXME: the key strings
+
+        for entry in self.entries:
+            if entry == None:
+                continue
+            
+            entry[0] = keyStrings.getString(entry[0])
+            if (entry[1] & TableTypeChunk.FLAG_COMPLEX_ENTRY) == 0: # a "simple" entry
+                # FIXME: lookup string value somewhere
+                pass
+
+            else:
+                for mapValue in entry[2]:
+
+                    # FIXME: resolve nameref
+                    if type(mapValue[1]) == int:
+                        # FIXME: lookup string value somewhere
+                        pass
