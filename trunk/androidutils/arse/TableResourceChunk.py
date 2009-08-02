@@ -37,7 +37,7 @@ class TablePackageChunk:
             elif subStreamPos == keyStringsPos:
                 keyStrings = subChunk
 
-            if isinstance(subChunk, TableTypeSpecChunk) and typeStrings != None:
+            if isinstance(subChunk, TableTypeSpecChunk):
                 subChunk.setName(typeStrings.getString(typeSpecIdx))
                 typeSpecIdx += 1
             elif isinstance(subChunk, TableTypeChunk):
@@ -47,6 +47,19 @@ class TablePackageChunk:
 
     
 class TableTypeSpecChunk:
+
+    SPEC_CONFIG_MCC             = 0x00000001
+    SPEC_CONFIG_MNC             = 0x00000002
+    SPEC_CONFIG_LOCALE          = 0x00000004
+    SPEC_CONFIG_TOUCHSCREEN     = 0x00000008
+    SPEC_CONFIG_KEYBOARD        = 0x00000010
+    SPEC_CONFIG_KEYBOARD_HIDDEN = 0x00000020
+    SPEC_CONFIG_NAVIGATION      = 0x00000040
+    SPEC_CONFIG_ORIENTATION     = 0x00000080
+    SPEC_CONFIG_DENSITY         = 0x00000100
+    SPEC_CONFIG_SCREEN_SIZE     = 0x00000200
+    SPEC_CONFIG_VERSION         = 0x00000400
+    SPEC_PUBLIC                 = 0x40000000
 
     def __init__(self, rawChunk):
 
@@ -63,23 +76,37 @@ class TableTypeSpecChunk:
 
 class TableTypeChunk:
 
+    FLAG_COMPLEX_ENTRY          = 0x00000001
+    FLAG_PUBLIC_ENTRY           = 0x00000002
+
     def __init__(self, rawChunk):
 
         (self.typeId, res0, res1, entryCount, entriesStart) = struct.unpack("<BBHII", rawChunk.Header[0:12])
         entriesStart -= len(rawChunk.Header) + 8
 
         (size, self.mcc, self.mnc, self.language, self.country, self.orientation, self.touchscreen, 
-         self.density, self.keyboard, self.navigation, self.inputFlags, self.pad0, self.screenWidth, 
+         self.density, self.keyboard, self.navigation, self.inputFlags, pad0, self.screenWidth, 
          self.screenHeight, self.sdkVersion, self.minorVersion) = struct.unpack("<IHH2s2sBBHBBBBHHHH", rawChunk.Header[12:])
         self.language = self.language.replace('\0', '')
         self.country = self.country.replace('\0', '')
 
-        self.entryOffsets = ()
+        self.entries = ()
         for idx in xrange(0, entryCount * 4, 4):
             curOffset = struct.unpack("<I", rawChunk.Data[idx:idx + 4])[0]
             if curOffset == 0xffffffff:
-                curOffset = None
-            self.entryOffsets += (curOffset, )
+                self.entries += (None, )
+                continue
+            curOffset += entriesStart
+
+            (size, flags, keyStringIdx) = struct.unpack("<HHI", rawChunk.Data[curOffset:curOffset + 8])
+            curOffset += 8
+
+            if (flags & TableTypeChunk.FLAG_COMPLEX_ENTRY) == 0: # a "simple" entry
+                simpleValue = ResourceChunk.ParseValue(rawChunk.Data[curOffset:curOffset + 8])
+            else: # a "complex" entry
+                (parentRef, mapCount) = struct.unpack("<II", rawChunk.Data[curOffset:curOffset + 8])
+                curOffset += 8
+                # FIXME
 
         # FIXME: the restable_entry data
 

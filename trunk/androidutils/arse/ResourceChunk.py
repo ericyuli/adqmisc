@@ -39,26 +39,25 @@ class ResourceChunkStream:
             if rawChunk.TypeCode == RES_NULL_TYPE:
                 yield NullResourceChunk.NullResourceChunk(rawChunk)
             elif rawChunk.TypeCode == RES_STRING_POOL_TYPE:
-                self.stringPool = StringPoolResourceChunk.StringPoolResourceChunk(rawChunk)
-                yield self.stringPool
+                yield StringPoolResourceChunk.StringPoolResourceChunk(rawChunk)
             elif rawChunk.TypeCode == RES_TABLE_TYPE:
                 yield TableResourceChunk.TableResourceChunk(rawChunk)
             elif rawChunk.TypeCode == RES_XML_TYPE:
                 yield XmlResourceChunk.XmlResourceChunk(rawChunk)
 
             elif rawChunk.TypeCode == RES_XML_RESOURCE_MAP_TYPE:
-                yield XmlResourceChunk.XmlResourceMapChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlResourceMapChunk(rawChunk)
 
             elif rawChunk.TypeCode == RES_XML_START_NAMESPACE_TYPE:
-                yield XmlResourceChunk.XmlNodeStartNamespaceChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlNodeStartNamespaceChunk(rawChunk)
             elif rawChunk.TypeCode == RES_XML_END_NAMESPACE_TYPE:
-                yield XmlResourceChunk.XmlNodeEndNamespaceChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlNodeEndNamespaceChunk(rawChunk)
             elif rawChunk.TypeCode == RES_XML_START_ELEMENT_TYPE:
-                yield XmlResourceChunk.XmlNodeStartElementChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlNodeStartElementChunk(rawChunk)
             elif rawChunk.TypeCode == RES_XML_END_ELEMENT_TYPE:
-                yield XmlResourceChunk.XmlNodeEndElementChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlNodeEndElementChunk(rawChunk)
             elif rawChunk.TypeCode == RES_XML_CDATA_TYPE:
-                yield XmlResourceChunk.XmlNodeCDATAChunk(rawChunk, self.stringPool)
+                yield XmlResourceChunk.XmlNodeCDATAChunk(rawChunk)
 
             elif rawChunk.TypeCode == RES_TABLE_PACKAGE_TYPE:
                 yield TableResourceChunk.TablePackageChunk(rawChunk)
@@ -73,15 +72,15 @@ class ResourceChunkStream:
 
 
 
-def ParseValue(buf, stringPool):
+def ParseValue(buf):
     (typedValueSize, zero, dataType, data) = struct.unpack("<HBBI", buf)
 
     if dataType == VALUE_TYPE_NULL:
         return None
     elif dataType == VALUE_TYPE_REFERENCE:
-        return "@%i" % data
+        return "@0x%08x" % data
     elif dataType == VALUE_TYPE_ATTRIBUTE:
-        return "?%i" % data
+        return "?0x%08x" % data
     elif dataType == VALUE_TYPE_FLOAT:
         return "%f" % struct.unpack("<f", buf[4:])
 
@@ -91,7 +90,7 @@ def ParseValue(buf, stringPool):
         return "%f%s" % (complexToFloat(data) * 100, FRACTION_UNIT_STRS[(data >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK])
 
     elif dataType == VALUE_TYPE_STRING:
-        return stringPool.getString(data)
+        return data
 
     elif dataType == VALUE_TYPE_INT_HEX:
         return "0x%x" % data
