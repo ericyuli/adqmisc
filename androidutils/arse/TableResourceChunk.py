@@ -2,6 +2,8 @@
 
 import struct
 import ResourceChunk
+import StringPoolResourceChunk
+import xml.dom.minidom
 
 class TableResourceChunk:
 
@@ -9,9 +11,80 @@ class TableResourceChunk:
 
         (packageCount, ) = struct.unpack("<I", rawChunk.Header)
 
-        self.packages = ()
-        for package in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
-            self.packages += (package, )
+        self.chunks = ()
+        for chunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
+            self.chunks += (chunk, )
+            
+            if isinstance(chunk, StringPoolResourceChunk.StringPoolResourceChunk):
+                globalStringPool = chunk
+            elif isinstance(chunk, TablePackageChunk):
+                chunk.resolveStrings(globalStringPool)
+
+        self.XmlDoc = xml.dom.minidom.Document()
+        rootNode = self.XmlDoc.createElement("packages")
+        self.XmlDoc.appendChild(rootNode)
+        for chunk in self.chunks:
+            if isinstance(chunk, TablePackageChunk):
+                curPackageNode = self.XmlDoc.createElement("package")
+                curPackageNode.setAttribute("id", "0x%x" % chunk.basePackageId)
+                curPackageNode.setAttribute("name", chunk.packageName)
+                rootNode.appendChild(curPackageNode)
+
+                for subChunk in chunk.chunks:
+                    
+                    if isinstance(subChunk, TableTypeSpecChunk):
+                        curRestypeNode = self.XmlDoc.createElement("resourcetype")
+                        curRestypeNode.setAttribute("id", "0x%x" % subChunk.typeId)
+                        curRestypeNode.setAttribute("name", subChunk.name)
+                        curPackageNode.appendChild(curRestypeNode)
+                        
+                        # The fastItemConfigTable is a table for fast lookup for each resource item. They indicate which SPEC_CONFIG_XXX flags appear in
+                        # more than one resourceconfig (i.e. have > 1 choice), and also which are public. We don't care since we're just 
+                        # dumping everything anyway.
+
+                    elif isinstance(subChunk, TableTypeChunk):
+                        curResourceNode = self.XmlDoc.createElement("configuration")
+                        if subChunk.mcc: curResourceNode.setAttribute("mcc", "%i" % subChunk.mcc)
+                        if subChunk.mnc: curResourceNode.setAttribute("mnc", "%i" % subChunk.mnc)
+                        if subChunk.language: curResourceNode.setAttribute("language", subChunk.language)
+                        if subChunk.country: curResourceNode.setAttribute("country", subChunk.country)
+                        if subChunk.orientation: curResourceNode.setAttribute("orientation", "%i" % subChunk.orientation)
+                        if subChunk.touchscreen: curResourceNode.setAttribute("touchscreen", "%i" % subChunk.touchscreen)
+                        if subChunk.density: curResourceNode.setAttribute("density", "%i" % subChunk.density)
+                        if subChunk.keyboard: curResourceNode.setAttribute("keyboard", "%i" % subChunk.keyboard)
+                        if subChunk.navigation: curResourceNode.setAttribute("navigation", "%i" % subChunk.navigation)
+                        if subChunk.inputFlags: curResourceNode.setAttribute("inputflags", "0x%x" % subChunk.inputFlags)
+                        if subChunk.screenWidth: curResourceNode.setAttribute("screenwidth", "%i" % subChunk.screenWidth)
+                        if subChunk.screenHeight: curResourceNode.setAttribute("screenheight", "%i" % subChunk.screenHeight)
+                        if subChunk.sdkVersion: curResourceNode.setAttribute("sdkversion", "%i" % subChunk.sdkVersion)
+                        if subChunk.minorVersion: curResourceNode.setAttribute("minorversion", "%i" % subChunk.minorVersion)
+                        curRestypeNode.appendChild(curResourceNode)
+
+                        entryId = 0
+                        for entry in subChunk.entries:
+                            if entry == None:
+                                entryId += 1
+                                continue
+                            curEntryNode = self.XmlDoc.createElement("item")
+                            curEntryNode.setAttribute("id", "0x%x" % entryId)
+                            curEntryNode.setAttribute("name", entry[0])
+                            if entry[1] & TableTypeChunk.FLAG_PUBLIC_ENTRY: curEntryNode.setAttribute("ispublic", "true")
+                            if entry[3]: valueNode.setAttribute("parentref", "@0x%08x" % entry[3])
+                            curResourceNode.appendChild(curEntryNode)
+
+                            if type(entry[2]) != tuple:
+                                curEntryNode.setAttribute("value", entry[2])
+                            else:
+                                for value in entry[2]:
+                                    valueNode = self.XmlDoc.createElement("value")
+
+                                    # FIXME: need special handling for name for attribute resources
+
+                                    valueNode.setAttribute("name", "@0x%08x" % value[0])
+                                    valueNode.setAttribute("value", value[1])
+                                    curEntryNode.appendChild(valueNode)
+
+                            entryId += 1
 
 
 class TablePackageChunk:
@@ -36,18 +109,19 @@ class TablePackageChunk:
             if subStreamPos == typeStringsPos:
                 typeStrings = subChunk
             elif subStreamPos == keyStringsPos:
-                keyStrings = subChunk
+                self.keyStrings = subChunk
+            subStreamPos = subStream.tell()
 
             if isinstance(subChunk, TableTypeSpecChunk):
                 subChunk.setName(typeStrings.getString(typeSpecIdx))
                 typeSpecIdx += 1
-            elif isinstance(subChunk, TableTypeChunk):
-                subChunk.resolveStrings(keyStrings)
-
-            subStreamPos = subStream.tell()
 
 
-        # FIXME: restructure it into... something!
+    def resolveStrings(self, globalStringPool):
+        
+        for chunk in self.chunks:
+            if isinstance(chunk, TableTypeChunk):
+                chunk.resolveStrings(globalStringPool, self.keyStrings)
 
     
 class TableTypeSpecChunk:
@@ -69,9 +143,9 @@ class TableTypeSpecChunk:
 
         (self.typeId, res0, res1, entryCount) = struct.unpack("<BBHI", rawChunk.Header)
 
-        self.configChangeFlags = ()
+        self.fastItemConfigTable = ()
         for idx in xrange(0, entryCount * 4, 4):
-            self.configChangeFlags += struct.unpack("<I", rawChunk.Data[idx:idx+4])
+            self.fastItemConfigTable += struct.unpack("<I", rawChunk.Data[idx:idx+4])
 
     def setName(self, name):
         
@@ -106,10 +180,13 @@ class TableTypeChunk:
             curOffset += 8
 
             if (flags & TableTypeChunk.FLAG_COMPLEX_ENTRY) == 0: # a "simple" entry
+                parentRef = None
                 value = ResourceChunk.ParseValue(rawChunk.Data[curOffset:curOffset + 8])
             else: # a "complex" entry
                 (parentRef, mapCount) = struct.unpack("<II", rawChunk.Data[curOffset:curOffset + 8])
                 curOffset += 8
+        
+                if parentRef == 0: parentRef = None
 
                 value = ()
                 for mapIdx in xrange(0, mapCount):
@@ -118,23 +195,21 @@ class TableTypeChunk:
                     value += ([nameRef, mapValue], )
                     curOffset += 12
 
-            self.entries += ([keyStringIdx, flags, value], )
+            self.entries += ([keyStringIdx, flags, value, parentRef], )
 
-    def resolveStrings(self, keyStrings):
+    def resolveStrings(self, globalStringPool, keyStringPool):
 
         for entry in self.entries:
             if entry == None:
                 continue
             
-            entry[0] = keyStrings.getString(entry[0])
+            entry[0] = keyStringPool.getString(entry[0])
             if (entry[1] & TableTypeChunk.FLAG_COMPLEX_ENTRY) == 0: # a "simple" entry
-                # FIXME: lookup string value somewhere
-                pass
+                if type(entry[2]) == int:
+                    entry[2] = globalStringPool.getString(entry[2])
 
             else:
                 for mapValue in entry[2]:
-
-                    # FIXME: resolve nameref
                     if type(mapValue[1]) == int:
-                        # FIXME: lookup string value somewhere
-                        pass
+                        mapValue[1] = globalStringPool.getString(mapValue[1])
+
