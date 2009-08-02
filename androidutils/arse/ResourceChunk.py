@@ -90,7 +90,7 @@ def ParseValue(buf):
         return "%f%s" % (complexToFloat(data) * 100, FRACTION_UNIT_STRS[(data >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK])
 
     elif dataType == VALUE_TYPE_STRING:
-        return data
+        return data #  lookup the real value later
 
     elif dataType == VALUE_TYPE_INT_HEX:
         return "0x%x" % data
