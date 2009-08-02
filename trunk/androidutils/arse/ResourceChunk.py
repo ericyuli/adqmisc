@@ -74,8 +74,8 @@ class ResourceChunkStream:
 
 
 
-def ParseValue(data, stringPool):
-    (typedValueSize, zero, dataType, data) = struct.unpack("<HBBI", data)
+def ParseValue(buf, stringPool):
+    (typedValueSize, zero, dataType, data) = struct.unpack("<HBBI", buf)
 
     if dataType == VALUE_TYPE_NULL:
         return None
@@ -86,14 +86,14 @@ def ParseValue(data, stringPool):
     elif dataType == VALUE_TYPE_STRING:
         return stringPool.getString(data)
     elif dataType == VALUE_TYPE_FLOAT:
-        return "FLOAT: %f" % struct.unpack("<f", data)
+        return "FLOAT: %f" % struct.unpack("<f", buf[4:])
     elif dataType == VALUE_TYPE_DIMENSION:
         return "DIMENSION: %x" % data                           # FIXME: format properly
     elif dataType == VALUE_TYPE_FRACTION:
         return "FRACTION: %x" % data                            # FIXME: format properly
 
     elif dataType == VALUE_TYPE_INT_DEC:
-        return "%i" % data
+        return "%i" % struct.unpack("<i", buf[4:]);
     elif dataType == VALUE_TYPE_INT_HEX:
         return "0x%x" % data
     elif dataType == VALUE_TYPE_INT_BOOLEAN:
