@@ -13,9 +13,8 @@ class XmlResourceChunk:
         for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
             self.chunks += (subChunk, )
         
-        # Now, rebuild the DOM document from the chunks loaded above
-        self.XmlDoc = xml.dom.minidom.Document()
-        curNode = self.XmlDoc
+        # Now, rebuild a DOM document from the chunks loaded above
+        curNode = self.XmlDoc = xml.dom.minidom.Document()
         namespaces = []
         for chunk in self.chunks:
             if isinstance(chunk, XmlNodeStartNamespaceChunk):
