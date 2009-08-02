@@ -3,6 +3,7 @@
 import xml.dom.minidom
 import struct
 import ResourceChunk
+import StringPoolResourceChunk
 
 class XmlResourceChunk:
 
@@ -12,37 +13,49 @@ class XmlResourceChunk:
         self.chunks = ()
         for subChunk in ResourceChunk.ResourceChunkStream(rawChunk.Data).readChunks():
             self.chunks += (subChunk, )
-        
+
         # Now, rebuild a DOM document from the chunks loaded above
         curNode = self.XmlDoc = xml.dom.minidom.Document()
         namespaces = []
         for chunk in self.chunks:
-            if isinstance(chunk, XmlNodeStartNamespaceChunk):
-                namespaces.insert(0, (chunk.prefix, chunk.uri))
+            if isinstance(chunk, StringPoolResourceChunk.StringPoolResourceChunk):
+                stringPool = chunk
+
+            elif isinstance(chunk, XmlNodeStartNamespaceChunk):
+                namespaces.insert(0, (stringPool.getString(chunk.prefixIdx), stringPool.getString(chunk.uriIdx)))
 
             elif isinstance(chunk, XmlNodeEndNamespaceChunk):
-                namespaces.remove((chunk.prefix, chunk.uri))
+                namespaces.remove((stringPool.getString(chunk.prefixIdx), stringPool.getString(chunk.uriIdx)))
 
             elif isinstance(chunk, XmlNodeStartElementChunk):
+                
+                elementNamespace = stringPool.getString(chunk.namespaceIdx)
+                elementName = stringPool.getString(chunk.nameIdx)
 
-                if chunk.namespace:
-                    tmpNode = self.XmlDoc.createElementNS(chunk.namespace, self.addNsPrefix(chunk.name, chunk.namespace, namespaces))
+                if elementNamespace:
+                    tmpNode = self.XmlDoc.createElementNS(elementNamespace, self.addNsPrefix(elementName, elementNamespace, namespaces))
                 else:
-                    tmpNode = self.XmlDoc.createElement(chunk.name)
+                    tmpNode = self.XmlDoc.createElement(elementName)
                 curNode.appendChild(tmpNode)
-                curNode= tmpNode
+                curNode = tmpNode
 
                 for attribute in chunk.attributes:
-                    if attribute[0]:
-                        curNode.setAttributeNS(attribute[0], self.addNsPrefix(attribute[1], attribute[0], namespaces), attribute[2])
+                    attrNamespace = stringPool.getString(attribute[0])
+                    attrName = stringPool.getString(attribute[1])
+                    attrValue = attribute[2]
+                    if type(attrValue) == int:
+                        attrValue = stringPool.getString(attrValue)
+
+                    if attrNamespace:
+                        curNode.setAttributeNS(attrNamespace, self.addNsPrefix(attrName, attrNamespace, namespaces), attrValue)
                     else:
-                        curNode.setAttribute(attribute[1], attribute[2])
-                
+                        curNode.setAttribute(attrName, attrValue)
+ 
             elif isinstance(chunk, XmlNodeEndElementChunk):
                 curNode = curNode.parentNode 
 
             elif isinstance(chunk, XmlNodeCDATAChunk):
-                curNode.appendChild(self.XmlDoc.createTextNode(chunk.value))
+                curNode.appendChild(self.XmlDoc.createTextNode(stringPool.getString(chunk.cdataIdx)))
 
     def addNsPrefix(self, name, namespace, namespaces):
         prefix = None
@@ -59,73 +72,60 @@ class XmlResourceChunk:
 
 class XmlNodeChunk:
 
-    def __init__(self, rawChunk, stringPool):
-        (self.lineNumber, commentIdx) = struct.unpack("<II", rawChunk.Header[0:8])
-        self.comment = stringPool.getString(commentIdx)
+    def __init__(self, rawChunk):
+        (self.lineNumber, self.commentIdx) = struct.unpack("<II", rawChunk.Header[0:8])
 
 class XmlNodeStartNamespaceChunk(XmlNodeChunk):
 
-    def __init__(self, rawChunk, stringPool):
-        XmlNodeChunk.__init__(self, rawChunk, stringPool)
+    def __init__(self, rawChunk):
+        XmlNodeChunk.__init__(self, rawChunk)
 
-        (prefixIdx, uriIdx) = struct.unpack("<II", rawChunk.Data[0:8])
-        self.prefix = stringPool.getString(prefixIdx)
-        self.uri = stringPool.getString(uriIdx)
+        (self.prefixIdx, self.uriIdx) = struct.unpack("<II", rawChunk.Data[0:8])
 
 class XmlNodeEndNamespaceChunk(XmlNodeChunk):
 
-    def __init__(self, rawChunk, stringPool):
-        XmlNodeChunk.__init__(self, rawChunk, stringPool)
+    def __init__(self, rawChunk):
+        XmlNodeChunk.__init__(self, rawChunk)
 
-        (prefixIdx, uriIdx) = struct.unpack("<II", rawChunk.Data[0:8])
-        self.prefix = stringPool.getString(prefixIdx)
-        self.uri = stringPool.getString(uriIdx)
+        (self.prefixIdx, self.uriIdx) = struct.unpack("<II", rawChunk.Data[0:8])
 
 class XmlNodeStartElementChunk(XmlNodeChunk):
 
-    def __init__(self, rawChunk, stringPool):
-        XmlNodeChunk.__init__(self, rawChunk, stringPool)
+    def __init__(self, rawChunk):
+        XmlNodeChunk.__init__(self, rawChunk)
 
-        (namespaceIdx, nameIdx) = struct.unpack("<II", rawChunk.Data[0:8])
-        self.namespace = stringPool.getString(namespaceIdx)
-        self.name = stringPool.getString(nameIdx)
+        (self.namespaceIdx, self.nameIdx) = struct.unpack("<II", rawChunk.Data[0:8])
 
         (attributeIdx, attributeSize, attributeCount, idIndex, classIndex, styleIndex) = struct.unpack("<HHHHHH", rawChunk.Data[8:20])
 
         self.attributes = ()
         while attributeCount > 0:
-            (namespaceIdx, nameIdx, rawIdx) = struct.unpack("<III", rawChunk.Data[attributeIdx:attributeIdx + 12])
+            (attrNamespaceIdx, attrNameIdx, attrRawIdx) = struct.unpack("<III", rawChunk.Data[attributeIdx:attributeIdx + 12])
 
-            value = stringPool.getString(rawIdx)
-            if value == None:
-                value = ResourceChunk.ParseValue(rawChunk.Data[attributeIdx+12:attributeIdx + 20], stringPool)
+            value = ResourceChunk.ParseValue(rawChunk.Data[attributeIdx+12:attributeIdx + 20])
 
-            self.attributes += ( (stringPool.getString(namespaceIdx), stringPool.getString(nameIdx), value), )
+            self.attributes += ( (attrNamespaceIdx, attrNameIdx, value), )
 
             attributeIdx += 20
             attributeCount -= 1
 
 class XmlNodeEndElementChunk(XmlNodeChunk):
 
-    def __init__(self, rawChunk, stringPool):
-        XmlNodeChunk.__init__(self, rawChunk, stringPool)
+    def __init__(self, rawChunk):
+        XmlNodeChunk.__init__(self, rawChunk)
 
-        (namespaceIdx, nameIdx) = struct.unpack("<II", rawChunk.Data[0:8])
-        self.namespace = stringPool.getString(namespaceIdx)
-        self.name = stringPool.getString(nameIdx)
+        (self.namespaceIdx, self.nameIdx) = struct.unpack("<II", rawChunk.Data[0:8])
 
 class XmlNodeCDATAChunk(XmlNodeChunk):
 
-    def __init__(self, rawChunk, stringPool):
-        XmlNodeChunk.__init__(self, rawChunk, stringPool)
+    def __init__(self, rawChunk):
+        XmlNodeChunk.__init__(self, rawChunk)
 
-        (rawDataIdx, ) = struct.unpack("<I", rawChunk.Data[0:4])
-        self.value = stringPool.getString(rawDataIdx)
+        (self.cdataIdx, ) = struct.unpack("<I", rawChunk.Data[0:4])
 
 class XmlResourceMapChunk:
 
-    def __init__(self, rawChunk, stringPool):
-        self.resourceIdStringMap = {}
+    def __init__(self, rawChunk):
+        self.resourceIdStringIdxMap = {}
         for idx in xrange(0, len(rawChunk.Data), 4):
-            self.resourceIdStringMap[struct.unpack("<I", rawChunk.Data[idx:idx+4])] = stringPool.getString(idx / 4)
-
+            self.resourceIdStringIdxMap[struct.unpack("<I", rawChunk.Data[idx:idx+4])] = idx / 4
