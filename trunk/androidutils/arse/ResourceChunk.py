@@ -67,7 +67,6 @@ class ResourceChunkStream:
             elif rawChunk.TypeCode == RES_TABLE_TYPE_SPEC_TYPE:
                 yield TableResourceChunk.TableTypeSpecChunk(rawChunk)
 
-
             else:
                 raise Exception("Unknown chunk code 0x%04x" % rawChunk.TypeCode)
 
@@ -80,36 +79,53 @@ def ParseValue(buf, stringPool):
     if dataType == VALUE_TYPE_NULL:
         return None
     elif dataType == VALUE_TYPE_REFERENCE:
-        return "REFERENCE:0x%x" % data
+        return "@%i" % data
     elif dataType == VALUE_TYPE_ATTRIBUTE:
-        return "ATTRIBUTE:0x%x" % data
+        return "?%i" % data
+    elif dataType == VALUE_TYPE_FLOAT:
+        return "%f" % struct.unpack("<f", buf[4:])
+
+    elif dataType == VALUE_TYPE_DIMENSION:
+        return "%f%s" % (complexToFloat(data), DIMENSION_UNIT_STRS[(data >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK])
+    elif dataType == VALUE_TYPE_FRACTION:
+        return "%f%s" % (complexToFloat(data) * 100, FRACTION_UNIT_STRS[(data >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK])
+
     elif dataType == VALUE_TYPE_STRING:
         return stringPool.getString(data)
-    elif dataType == VALUE_TYPE_FLOAT:
-        return "FLOAT: %f" % struct.unpack("<f", buf[4:])
-    elif dataType == VALUE_TYPE_DIMENSION:
-        return "DIMENSION: %x" % data                           # FIXME: format properly
-    elif dataType == VALUE_TYPE_FRACTION:
-        return "FRACTION: %x" % data                            # FIXME: format properly
 
-    elif dataType == VALUE_TYPE_INT_DEC:
-        return "%i" % struct.unpack("<i", buf[4:]);
     elif dataType == VALUE_TYPE_INT_HEX:
         return "0x%x" % data
     elif dataType == VALUE_TYPE_INT_BOOLEAN:
         return "false" if (data == 0) else "true"
 
-    elif dataType == VALUE_TYPE_INT_COLOR_ARGB8:
-        return "#%08x" % data
-    elif dataType == VALUE_TYPE_INT_COLOR_RGB8:
-        return "#%06x" % data
-    elif dataType == VALUE_TYPE_INT_COLOR_ARGB4:
-        return "#%04x" % data
-    elif dataType == VALUE_TYPE_INT_COLOR_RGB4:
-        return "#%03x" % data
+    elif (dataType >= VALUE_TYPE_FIRST_COLOR_INT) and (dataType <= VALUE_TYPE_LAST_COLOR_INT):
+        return "#%x" % data
+
+    elif (dataType >= VALUE_TYPE_FIRST_INT) and (dataType <= VALUE_TYPE_LAST_INT):
+        return "%i" % struct.unpack("<i", buf[4:]);
 
     else:
         raise Exception("Unsupported data type 0x%x" % dataType)
+
+
+def complexToFloat(value):
+    return (value & (COMPLEX_MANTISSA_MASK << COMPLEX_MANTISSA_SHIFT)) * RADIX_MULTS[(value>>COMPLEX_RADIX_SHIFT) & COMPLEX_RADIX_MASK]
+
+COMPLEX_MANTISSA_SHIFT = 8
+COMPLEX_MANTISSA_MASK = 0xffffff
+COMPLEX_RADIX_SHIFT = 4
+COMPLEX_RADIX_MASK = 0x3
+COMPLEX_UNIT_SHIFT = 0
+COMPLEX_UNIT_MASK = 0xf
+DIMENSION_UNIT_STRS = ( "px", "dip", "sp", "pt", "in", "mm" )
+FRACTION_UNIT_STRS = ( "%", "%p" )
+
+MANTISSA_MULT = 1.0 / (1 << COMPLEX_MANTISSA_SHIFT)
+RADIX_MULTS = (1.0 * MANTISSA_MULT,
+               1.0 / (1 << 7) * MANTISSA_MULT,
+               1.0 / (1 << 15) * MANTISSA_MULT, 
+               1.0 / (1 << 23) * MANTISSA_MULT)
+
 
 
 RES_NULL_TYPE               = 0x0000
@@ -137,11 +153,19 @@ VALUE_TYPE_FLOAT            = 0x04
 VALUE_TYPE_DIMENSION        = 0x05
 VALUE_TYPE_FRACTION         = 0x06
 
+VALUE_TYPE_FIRST_INT        = 0x10
+
 VALUE_TYPE_INT_DEC          = 0x10
 VALUE_TYPE_INT_HEX          = 0x11
 VALUE_TYPE_INT_BOOLEAN      = 0x12
+
+VALUE_TYPE_FIRST_COLOR_INT  = 0x1c
 
 VALUE_TYPE_INT_COLOR_ARGB8  = 0x1c
 VALUE_TYPE_INT_COLOR_RGB8   = 0x1d
 VALUE_TYPE_INT_COLOR_ARGB4  = 0x1e
 VALUE_TYPE_INT_COLOR_RGB4   = 0x1f
+
+VALUE_TYPE_LAST_COLOR_INT   = 0x1f
+
+VALUE_TYPE_LAST_INT         = 0x1f
