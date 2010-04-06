@@ -39,6 +39,64 @@ class BitArray:
 				
 		return result
 
+def LoadHuffmanSyms(bits, symscountbits, zeroskipidx):
+	huffsyms = None
+	symscount = bits.read(symscountbits)
+	if symscount == 0:
+		v = bits.read(5)
+		huffsyms = [ [ v, 1, 0], [ v, 1, 1 ] ]
+	else:
+		# Decode the horrible bit length encoding thing!
+		huffsyms = []
+		idx = 0
+		while idx < symscount:
+			bitlen = bits.read(3)
+			if bitlen == 7:
+				while bits.read(1):
+					bitlen += 1
+			if bitlen != 0:
+				huffsyms += ([idx, bitlen, None], )
+			idx += 1
+			
+			# decode the extra special nasty zero-skip hack!
+			if idx == zeroskipidx:
+				idx += bits.read(2)
+
+		# Now, sort them by bit length
+		huffsyms = sorted(huffsyms, key=lambda length: length[1])
+
+		# Allocate huffman codes to the length-ordered symbols
+		huffsyms[0][2] = 0
+		for idx in xrange(1, len(huffsyms)):
+			huffsyms[idx][2] = (huffsyms[idx-1][2] + 1) << (huffsyms[idx][1] - huffsyms[idx-1][1])
+
+	return huffsyms
+
+def BuildHuffmanTree(huffsyms):
+	hufftree = [None, None]
+	for huffsym in huffsyms:
+		symbol = huffsym[0]
+		bitlen = huffsym[1]
+		huffcode = huffsym[2]
+		if bitlen == 0:
+			continue
+
+		huffsubtree = hufftree
+		for bit in xrange(0, bitlen):
+			lr = huffcode & (1 << (bitlen - bit - 1)) != 0
+
+			if bit < bitlen - 1:
+				if huffsubtree[lr] == None:
+					huffsubtree[lr] = [None, None]
+				huffsubtree = huffsubtree[lr]
+			else:
+				huffsubtree[lr] = symbol
+	return hufftree
+
+
+
+
+
 f = open('1-b1da0adf-4f77-4070-a88e-bffe1c60529a.COMPRESSION')
 (compsize, origsize) =  struct.unpack("<II", f.read(8))
 bits = BitArray(f.read())
@@ -51,50 +109,12 @@ while True:
 	if blocksize == 0:
 		blocksize = bits.read(16)
 
-		# Load in the canonical Huffman bit length table
-		extrasetcount = bits.read(5)
-		extraset = []
-		extrasetvalue = None
-		if extrasetcount == 0:
-			extrasetvalue = bits.read(5)
-		else:
-			# Decode the horrible bit length encoding thing!
-			idx = 0
-			while idx < extrasetcount:
-				curval = bits.read(3)
-				if curval == 7:
-					count = 3
-					while bits.read(1):
-						count += 1
-					curval = count + 4
-				extraset += ([idx, curval, None], )
-				idx += 1
-				
-				# decode the extra special nasty hack!
-				if idx == 3:
-					idxoffset = bits.read(2)
-					for zerofillidx in xrange(3, 3 + idxoffset):
-						extraset += ([zerofillidx, 0, None], )
-					idx += idxoffset
-
-			# Pad with zero entries as necessary
-			for zerofillidx in xrange(extrasetcount, 19):
-				extraset += ([zerofillidx, 0, None], )
-
-			# Now, sort them by bit length
-			extraset = sorted(extraset, key=lambda length: length[1])
-
-			# Allocate huffman codes to the length-ordered symbols
-			code = 0
-			for idx in xrange(0, len(extraset)):
-				if extraset[idx][1] == 0:
-					continue
-
-				extraset[idx][2] = hex(code)
-				if idx < len(extraset)-1:
-					code = (code + 1) << (extraset[idx+1][1] - extraset[idx][1])
-
-			print extraset
+		extra_hufftree = BuildHuffmanTree(LoadHuffmanSyms(bits, 5, 3))
+		# FIXME: load the char/len set
+#		positionset_hufftree = BuildHuffmanTree(LoadHuffmanSyms(bits, 4, -1))
+		
+		print extra_hufftree
+			
 		sys.exit(0)
 
 
@@ -106,7 +126,7 @@ while True:
 			for idx in xrange(0, charlensetcount):
 				curval = bits.read(3)
 				if curval == 7:
-					count = 3
+					count = extraset
 					while bits.read(1):
 						count += 1
 					curval = count + 4
