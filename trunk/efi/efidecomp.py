@@ -50,24 +50,52 @@ blocksize = 0
 while True:
 	if blocksize == 0:
 		blocksize = bits.read(16)
-		
+
+		# Load in the canonical Huffman bit length table
 		extrasetcount = bits.read(5)
-		extrasetlengths = ()
+		extraset = []
+		extrasetvalue = None
 		if extrasetcount == 0:
-			extrasetlengths = (bits.read(5), )
+			extrasetvalue = bits.read(5)
 		else:
-			for idx in xrange(0, extrasetcount):
+			# Decode the horrible bit length encoding thing!
+			idx = 0
+			while idx < extrasetcount:
 				curval = bits.read(3)
 				if curval == 7:
 					count = 3
 					while bits.read(1):
 						count += 1
 					curval = count + 4
-				extrasetlengths += (curval, )
+				extraset += ([idx, curval, None], )
+				idx += 1
 				
-				if idx == 2:
-					extrasetlengths+= (0,) * bits.read(2)			
-		print extrasetlengths
+				# decode the extra special nasty hack!
+				if idx == 3:
+					idxoffset = bits.read(2)
+					for zerofillidx in xrange(3, 3 + idxoffset):
+						extraset += ([zerofillidx, 0, None], )
+					idx += idxoffset
+
+			# Pad with zero entries as necessary
+			for zerofillidx in xrange(extrasetcount, 19):
+				extraset += ([zerofillidx, 0, None], )
+
+			# Now, sort them by bit length
+			extraset = sorted(extraset, key=lambda length: length[1])
+
+			# Allocate huffman codes to the length-ordered symbols
+			code = 0
+			for idx in xrange(0, len(extraset)):
+				if extraset[idx][1] == 0:
+					continue
+
+				extraset[idx][2] = hex(code)
+				if idx < len(extraset)-1:
+					code = (code + 1) << (extraset[idx+1][1] - extraset[idx][1])
+
+			print extraset
+		sys.exit(0)
 
 
 		charlensetcount = bits.read(9)
@@ -85,7 +113,7 @@ while True:
 				extrasetlengths += (curval, )
 				
 				if idx == 2:
-					extrasetlengths+= (0,) * bits.read(2)			
+					charlensetlengths+= (0,) * bits.read(2)			
 		print charlensetlengths
 
 
