@@ -2,12 +2,14 @@
 import struct
 import Guid
 import zlib
+import sys
+import EfiDecompressor
 
 class EfiSection:
   
   EFI_SECTION_COMPRESSION		= 0x01
   EFI_SECTION_GUID_DEFINED		= 0x02
-  
+
   EFI_SECTION_PE32			= 0x10
   EFI_SECTION_PIC			= 0x11
   EFI_SECTION_TE			= 0x12
@@ -82,10 +84,11 @@ def find(efifile, efifiledata):
     data = ()
     if efitype == EfiSection.EFI_SECTION_COMPRESSION:
       (uncomp_length, comp_type) = struct.unpack("<IB", efifiledata[base:base+4+1])
-      data = efifiledata[base+5:base+length]
-      pass # FIXME: implement decompression
+      data = EfiDecompressor.Decompress(efifiledata[base+5:base+length])[4:]
+      # FIXME: check contents
 
     elif efitype == EfiSection.EFI_SECTION_GUID_DEFINED:
+      print >> sys.stderr, "Warning, SECTION_GUID extraction is unimplemented"
       # FIXME: implement properly
       data = efifiledata[base:base+length]
       pass
