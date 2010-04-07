@@ -22,6 +22,7 @@ instream.seek(0, 0)
 vid = 0
 for v in EfiVolume.find(instream, streamlength):
   print v
+
   for f in EfiFile.find(instream, v):
     print f
     
@@ -31,6 +32,9 @@ for v in EfiVolume.find(instream, streamlength):
     if  (f.Type == f.EFI_FV_FILETYPE_RAW or 
 	 f.Type == f.EFI_FV_FILETYPE_SECURITY_CORE):
       savedata("%i-%s" % (vid, f.Guid), data)
+
+    elif f.Type == f.Type == f.EFI_FV_FILETYPE_FFS_PAD:
+      pass # ignore padding files
 
     elif (f.Type == f.EFI_FV_FILETYPE_FREEFORM or
 	  f.Type == f.EFI_FV_FILETYPE_PEI_CORE or
