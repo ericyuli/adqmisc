@@ -17,6 +17,7 @@ class EfiVolume:
     result += "\tBase Offset: 0x%08x\n" % self.Base
     result += "\tHeader Length: 0x%x\n" % self.HeaderLength
     result += "\tData Length: 0x%08x\n" % self.DataLength
+    result += "\tTotal Length: 0x%08x\n" % (self.HeaderLength + self.DataLength)
     result += "\tSignature: %s\n" % self.Signature
     result += "\tAttributes: 0x%04x\n" % self.Attributes
     return result
@@ -26,7 +27,7 @@ def find(instream, streamlength):
   volumes = []
 
   base = instream.tell()
-  while(base < streamlength):
+  while base < streamlength:
     
     # align to 8 bytes
     if instream.tell() % 8:
@@ -34,10 +35,14 @@ def find(instream, streamlength):
       instream.seek(tmp, 1)
       base += tmp
 
-    (zero, guid, length, sig, attrib, headerlength, checksum, reserved, revision) = struct.unpack("<16s16sQ4sIHH3sB", instream.read(16 + 16 + 8 + 4 + 4 + 2 + 2 + 3 + 1))
-    if Guid.strguid(guid) != "7a9354d9-0468-444a-81ce-0bf617d890df":
-      return volumes
+    # Scan for volume GUID
+    while base < streamlength and Guid.strguid(instream.read(16))  != "7a9354d9-0468-444a-81ce-0bf617d890df":
+      base += 16
+      continue
+    base -= 16
+    instream.seek(-32, 1)
 
+    (zero, guid, length, sig, attrib, headerlength, checksum, reserved, revision) = struct.unpack("<16s16sQ4sIHH3sB", instream.read(16 + 16 + 8 + 4 + 4 + 2 + 2 + 3 + 1))
     volumes.append(EfiVolume(base, headerlength, length - headerlength, sig, attrib))
 
     # Skip the blockmap - sample I have just has one big block in it
