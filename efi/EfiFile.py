@@ -30,6 +30,7 @@ class EfiFile:
     result = "EFI_FIRMWARE_FILE:\n"
     result += "\tBase Offset: 0x%08x\n" % self.Base
     result += "\tData Length: 0x%08x\n" % self.DataLength
+    result += "\tTotal Length: 0x%08x\n" % (self.HeaderLength + self.DataLength)
     result += "\tGuid: %s\n" % self.Guid
     result += "\tType: 0x%02x (%s)\n" % (self.Type, self.strfiletype())
     result += "\tAttributes: 0x%02x\n" % self.Attributes
