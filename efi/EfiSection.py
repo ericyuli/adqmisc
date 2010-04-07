@@ -26,6 +26,10 @@ class EfiSection:
     self.Type = filetype
     self.Data = None
     self.Guid = None
+    self.String = None
+    self.BuildNumber = None
+    self.Attributes = None
+    self.HeaderData = None
     self.SubSections = None
 
   def __str__(self):
@@ -33,11 +37,16 @@ class EfiSection:
     result += "\tType: 0x%02x (%s)\n" % (self.Type, self.strsectiontype())
     if self.Guid:
       result += "\tGuid: %s\n" % self.Guid
+    if self.String:
+      result += "\tString: %s\n" % self.String
+    if self.BuildNumber:
+      result += "\tBuildNumber: %s\n" % self.BuildNumber
+    if self.Attributes:
+      result += "\tAttributes: %s\n" % self.Attributes
+    if self.HeaderData:
+      result += "\tHeader Data Length: 0x%08x\n" % len(self.HeaderData)
     if self.Data:
-      if type(self.Data) == tuple:
-	result += "\tData: %s\n" % ', '.join([str(x) for x in self.Data])
-      else:
-	result += "\tBinary Data Length: 0x%08x\n" % len(self.Data)
+      result += "\tBinary Data Length: 0x%08x\n" % len(self.Data)
     return result
 
   def strsectiontype(self):
@@ -100,24 +109,29 @@ def find(rawdata):
       section.SubSections = find(data)
 
     elif efitype == EfiSection.EFI_SECTION_GUID_DEFINED:
-      print "Warning: SECTION_GUID extraction is unimplemented"
-      section.Data = rawdata[base:base+length]
-      # FIXME: implement this!
+      (guid, data_offset, attributes) = struct.unpack("<16sHH", rawdata[base:base+16+2+2])
+      data_offset -= 24
+
+      section.Guid = Guid.strguid(guid)
+      section.HeaderData = rawdata[base+20:base+20+data_offset]
+      section.Attributes = attributes
+      section.Data = rawdata[base+20+data_offset:base+length]
 
     elif efitype == EfiSection.EFI_SECTION_VERSION:
       (build_number, ) = struct.unpack("<H", rawdata[base:base+2])
-      string = unicode(rawdata[base+2:base+length-2], "utf-16")
-      section.Data = (build_number, string)
+      section.BuildNumber = build_number
+      section.String = unicode(rawdata[base+2:base+length-2], "utf-16")
 
     elif efitype == EfiSection.EFI_SECTION_USER_INTERFACE:
-      section.Data = (unicode(rawdata[base:base+length-2], "utf-16"), )
+      section.String = unicode(rawdata[base:base+length-2], "utf-16")
 
     elif efitype == EfiSection.EFI_SECTION_FREEFORM_SUBTYPE_GUID:
       section.Guid = Guid.strguid(rawdata[base:base+16])
       section.Data = rawdata[base+16:]
 
     else:
-      section.Data = rawdata[base:base+length]
+      if length:
+	section.Data = rawdata[base:base+length]
 
     sections.append(section)
 

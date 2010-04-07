@@ -17,8 +17,10 @@ def dumpsection(s, sid, basefilename, pprefix):
   print "%s%s" % (pprefix, s)
 
   filename = "%s.S%04i-%s" % (basefilename, sid, s.strsectiontype())
-  if type(s.Data) == str:
+  if s.Data:
     savedata(filename, s.Data)
+  if s.HeaderData:
+    savedata(filename + "-HEADERDATA", s.HeaderData)
 
   if s.SubSections:
     sub_sid = 0
