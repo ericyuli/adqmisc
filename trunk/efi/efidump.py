@@ -33,8 +33,11 @@ for v in EfiVolume.find(instream, streamlength):
 	 f.Type == f.EFI_FV_FILETYPE_SECURITY_CORE):
       savedata("%i-%s" % (vid, f.Guid), data)
 
-    elif f.Type == f.Type == f.EFI_FV_FILETYPE_FFS_PAD:
+    elif f.Type == f.EFI_FV_FILETYPE_FFS_PAD:
       pass # ignore padding files
+
+    elif f.Type == f.EFI_FV_FILETYPE_FIRMWARE_VOLUME_IMAGE:
+      print "FIRMWARE_VOLUME_IMAGE files are currently unsupported"
 
     elif (f.Type == f.EFI_FV_FILETYPE_FREEFORM or
 	  f.Type == f.EFI_FV_FILETYPE_PEI_CORE or
@@ -42,13 +45,12 @@ for v in EfiVolume.find(instream, streamlength):
 	  f.Type == f.EFI_FV_FILETYPE_PEIM or
 	  f.Type == f.EFI_FV_FILETYPE_DRIVER or
 	  f.Type == f.EFI_FV_FILETYPE_COMBINED_PEIM_DRIVER or
-	  f.Type == f.EFI_FV_FILETYPE_APPLICATION or
-	  f.Type == f.EFI_FV_FILETYPE_FIRMWARE_VOLUME_IMAGE):
+	  f.Type == f.EFI_FV_FILETYPE_APPLICATION):
       for s in EfiSection.find(f, data):
 	print s
 	if type(s.Data) == str:
 	  savedata("%i-%s.%s" % (vid, f.Guid, s.strsectiontype()), s.Data)
-      
+
     else:
       print "Unknown file type %02x" % f.Type
   vid+=1
