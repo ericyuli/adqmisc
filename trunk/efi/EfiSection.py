@@ -22,17 +22,22 @@ class EfiSection:
   EFI_SECTION_RAW			= 0x19
   EFI_SECTION_PEI_DEPEX			= 0x1b
 
-  def __init__(self, data, filetype):
-    self.Data = data
+  def __init__(self, filetype):
     self.Type = filetype
+    self.Data = None
+    self.Guid = None
+    self.SubSections = None
 
   def __str__(self):
     result = "EFI_SECTION:\n"
     result += "\tType: 0x%02x (%s)\n" % (self.Type, self.strsectiontype())
-    if type(self.Data) == tuple:
-      result += "\tData: %s\n" % ', '.join([str(x) for x in self.Data])
-    else:
-      result += "\tBinary Data Length: 0x%08x\n" % len(self.Data)
+    if self.Guid:
+      result += "\tGuid: %s\n" % self.Guid
+    if self.Data:
+      if type(self.Data) == tuple:
+	result += "\tData: %s\n" % ', '.join([str(x) for x in self.Data])
+      else:
+	result += "\tBinary Data Length: 0x%08x\n" % len(self.Data)
     return result
 
   def strsectiontype(self):
@@ -64,50 +69,57 @@ class EfiSection:
       return "PEI_DEPEX"
     return "UNKNOWN"
 
-def find(efifile, efifiledata):
+def find(rawdata):
   sections = []
 
   base = 0
-  while(base < efifile.DataLength):
+  while base < len(rawdata) :
 
     # align to 4 bytes
     if base % 4:
       base += 4 - (base % 4)
-    if base >= efifile.DataLength:
+    if base >= len(rawdata):
       break
 
-    (length, efitype) = struct.unpack("<3sB", efifiledata[base:base+4])
+    (length, efitype) = struct.unpack("<3sB", rawdata[base:base+4])
     length = struct.unpack("<I", length + '\0')[0]
     base += 4
     length -= 4
 
-    data = ()
+    section = EfiSection(efitype)
     if efitype == EfiSection.EFI_SECTION_COMPRESSION:
-      (uncomp_length, comp_type) = struct.unpack("<IB", efifiledata[base:base+4+1])
-      data = EfiDecompressor.Decompress(efifiledata[base+5:base+length])[4:]
-      # FIXME: check contents
+      (uncomp_length, comp_type) = struct.unpack("<IB", rawdata[base:base+4+1])
+      data = rawdata[base+5:base+length]
+      if comp_type == 0:
+	pass # uncompressed
+      elif comp_type == 1:
+	data = EfiDecompressor.Decompress(data)
+      else:
+	print "Warning: Unknown compression type %i" % comp_type
+
+      section.SubSections = find(data)
 
     elif efitype == EfiSection.EFI_SECTION_GUID_DEFINED:
-      print >> sys.stderr, "Warning, SECTION_GUID extraction is unimplemented"
-      # FIXME: implement properly
-      data = efifiledata[base:base+length]
-      pass
+      print "Warning: SECTION_GUID extraction is unimplemented"
+      section.Data = rawdata[base:base+length]
+      # FIXME: implement this!
 
     elif efitype == EfiSection.EFI_SECTION_VERSION:
-      (build_number, ) = struct.unpack("<H", efifiledata[base:base+2])
-      string = unicode(efifiledata[base+2:base+length-2], "utf-16")
-      data = (build_number, string)
+      (build_number, ) = struct.unpack("<H", rawdata[base:base+2])
+      string = unicode(rawdata[base+2:base+length-2], "utf-16")
+      section.Data = (build_number, string)
 
     elif efitype == EfiSection.EFI_SECTION_USER_INTERFACE:
-      data = (unicode(efifiledata[base:base+length-2], "utf-16"), )
+      section.Data = (unicode(rawdata[base:base+length-2], "utf-16"), )
 
     elif efitype == EfiSection.EFI_SECTION_FREEFORM_SUBTYPE_GUID:
-      data = (Guid.strguid(efifiledata[base:base+length]), )
+      section.Guid = Guid.strguid(rawdata[base:base+16])
+      section.Data = rawdata[base+16:]
 
     else:
-      data = efifiledata[base:base+length]
+      section.Data = rawdata[base:base+length]
 
-    sections.append(EfiSection(data, efitype))
+    sections.append(section)
 
     base += length
 
