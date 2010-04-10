@@ -1,0 +1,237 @@
+diff --git a/loader/i386/efi/linux.c b/loader/i386/efi/linux.c
+index a6db22e..25d31e7 100644
+--- a/loader/i386/efi/linux.c
++++ b/loader/i386/efi/linux.c
+@@ -30,6 +30,7 @@
+ #include <grub/efi/api.h>
+ #include <grub/efi/efi.h>
+ #include <grub/efi/uga_draw.h>
++#include <grub/efi/graphics_output.h>
+ #include <grub/pci.h>
+ #include <grub/command.h>
+ #include <grub/memory.h>
+@@ -53,6 +54,15 @@ static grub_efi_uintn_t prot_mode_pages;
+ static grub_efi_uintn_t initrd_pages;
+ static void *mmap_buf;
+ 
++static grub_uint32_t ScreenWidth = 0;
++static grub_uint32_t ScreenHeight = 0;
++static grub_uint32_t ScreenDepth = 0;
++static grub_uint32_t FrameBufferBase = 0;
++static grub_uint32_t FrameBufferSize = 0;
++static grub_uint32_t LineLength = 0;
++static grub_efi_gop_blt_t old_blt = NULL;
++static struct grub_efi_gop *gop = NULL;
++
+ static grub_uint8_t gdt[] __attribute__ ((aligned(16))) =
+   {
+     /* NULL.  */
+@@ -426,7 +436,7 @@ grub_linux_unload (void)
+ }
+ 
+ static grub_efi_guid_t uga_draw_guid = GRUB_EFI_UGA_DRAW_GUID;
+-
++static grub_efi_guid_t graphics_output_guid = GRUB_EFI_GOP_GUID;
+ 
+ #define RGB_MASK	0xffffff
+ #define RGB_MAGIC	0x121314
+@@ -541,32 +551,49 @@ find_framebuf (grub_uint32_t *fb_base, grub_uint32_t *line_len)
+ static int
+ grub_linux_setup_video (struct linux_kernel_params *params)
+ {
+-  grub_efi_uga_draw_protocol_t *c;
+-  grub_uint32_t width, height, depth, rate, pixel, fb_base, line_len;
++  grub_uint32_t width, height, depth, rate, pixel, fb_base, line_len, fb_size;
+   int ret;
+ 
+-  c = grub_efi_locate_protocol (&uga_draw_guid, 0);
+-  if (! c)
+-    return 1;
+-
+-  if (efi_call_5 (c->get_mode, c, &width, &height, &depth, &rate))
+-    return 1;
++  if (gop) {
++    width = ScreenWidth;
++    height = ScreenHeight;
++    depth = ScreenDepth;
++    line_len = LineLength;
++    fb_base = FrameBufferBase;
++    fb_size = FrameBufferSize;
++  } else {
++    grub_efi_uga_draw_protocol_t *c;
++
++    c = grub_efi_locate_protocol (&uga_draw_guid, 0);
++    if (! c)
++    {
++      grub_printf ("Can\'t locate uga protocol\n");
++      return 1;
++    }
+ 
+-  grub_printf ("Video mode: %ux%u-%u@%u\n", width, height, depth, rate);
++    if (efi_call_5 (c->get_mode, c, &width, &height, &depth, &rate))
++    {
++      grub_printf ("Can\'t get mode\n");
++      return 1;
++    }
+ 
+-  grub_efi_set_text_mode (0);
+-  pixel = RGB_MAGIC;
+-  efi_call_10 (c->blt, c, (struct grub_efi_uga_pixel *) &pixel,
+-	       GRUB_EFI_UGA_VIDEO_FILL, 0, 0, 0, 0, 1, height, 0);
+-  ret = find_framebuf (&fb_base, &line_len);
+-  grub_efi_set_text_mode (1);
++    grub_efi_set_text_mode (0);
++    pixel = RGB_MAGIC;
++    efi_call_10 (c->blt, c, (struct grub_efi_uga_pixel *) &pixel,
++                 GRUB_EFI_UGA_VIDEO_FILL, 0, 0, 0, 0, 1, height, 0);
++    ret = find_framebuf (&fb_base, &line_len);
++    grub_efi_set_text_mode (1);
+ 
+-  if (! ret)
++    if (! ret)
+     {
+       grub_printf ("Can\'t find frame buffer address\n");
+       return 1;
+     }
+ 
++    fb_size = (line_len * params->lfb_height + 65535) >> 16;
++  }
++
++  grub_printf ("Video mode: %ux%u-%u\n", width, height, depth);
+   grub_printf ("Frame buffer base: 0x%x\n", fb_base);
+   grub_printf ("Video line length: %d\n", line_len);
+ 
+@@ -574,9 +601,10 @@ grub_linux_setup_video (struct linux_kernel_params *params)
+   params->lfb_height = height;
+   params->lfb_depth = depth;
+   params->lfb_line_len = line_len;
++  params->lfb_pages = 1;
+ 
+   params->lfb_base = fb_base;
+-  params->lfb_size = ALIGN_UP (line_len * params->lfb_height, 65536);
++  params->lfb_size = fb_size;
+ 
+   params->red_mask_size = 8;
+   params->red_field_pos = 16;
+@@ -587,8 +615,8 @@ grub_linux_setup_video (struct linux_kernel_params *params)
+   params->reserved_mask_size = 8;
+   params->reserved_field_pos = 24;
+ 
+-  params->have_vga = GRUB_VIDEO_LINUX_TYPE_VESA;
+-  params->vid_mode = 0x338;  /* 1024x768x32  */
++  params->have_vga = GRUB_VIDEO_LINUX_TYPE_SIMPLE;
++  params->vid_mode = 0;  /* 1024x768x32  */
+ 
+   return 0;
+ }
+@@ -1003,8 +1031,84 @@ grub_cmd_initrd (grub_command_t cmd __attribute__ ((unused)),
+   return grub_errno;
+ }
+ 
+-static grub_command_t cmd_linux, cmd_initrd;
++static grub_efi_status_t new_blt(struct grub_efi_gop *This,
++                                 void *BltBuffer,
++                                 grub_efi_uintn_t BltOperation,
++                                 grub_efi_uintn_t SourceX,
++                                 grub_efi_uintn_t SourceY,
++                                 grub_efi_uintn_t DestinationX,
++                                 grub_efi_uintn_t DestinationY,
++                                 grub_efi_uintn_t Width,
++                                 grub_efi_uintn_t Height,
++                                 grub_efi_uintn_t Delta)
++{
++  grub_efi_uintn_t row,col,DeltaWidth;
++  grub_uint32_t *SourceBase, *DestinationBase;
++  This = This;
++
++  if(!FrameBufferBase)
++    return -1;
++
++  if(!Delta)
++    DeltaWidth = Width;
++  else
++    DeltaWidth = Delta/sizeof(grub_uint32_t);
+ 
++  switch(BltOperation)
++  {
++    case 0: //EfiBltVideoFill
++      DestinationBase = (grub_uint32_t*)FrameBufferBase + ScreenWidth*DestinationY + DestinationX;
++      for(row=0; row<Height; row++)
++      {
++        for(col=0; col<Width; col++)
++          DestinationBase[col]=*(grub_uint32_t*)BltBuffer;
++        DestinationBase+=ScreenWidth;
++      }
++      break;
++
++    case 1: // EfiBltVideoToBltBuffer
++      SourceBase = (grub_uint32_t*)FrameBufferBase + ScreenWidth*SourceY + SourceX;
++      DestinationBase = ((grub_uint32_t*)BltBuffer) + DeltaWidth*DestinationY + DestinationX;
++      for(row=0; row<Height; row++)
++      {
++        for(col=0; col<Width; col++)
++          DestinationBase[col]=SourceBase[col];
++        DestinationBase+=DeltaWidth;
++        SourceBase+=ScreenWidth;
++      } 
++      break;
++
++    case 2: // EfiBltBufferToVideo
++      SourceBase = ((grub_uint32_t*)BltBuffer) + DeltaWidth*SourceY + SourceX;
++      DestinationBase = (grub_uint32_t*)FrameBufferBase + ScreenWidth*DestinationY + DestinationX;
++      for(row=0; row<Height; row++)
++      {
++        for(col=0; col<Width; col++)
++          DestinationBase[col]=SourceBase[col];
++        DestinationBase+=ScreenWidth;
++        SourceBase+=DeltaWidth;
++      } 
++      break;
++      
++    case 3: // EfiBltVideoToVideo
++      SourceBase = (grub_uint32_t*)FrameBufferBase + ScreenWidth*SourceY + SourceX;
++      DestinationBase = (grub_uint32_t*)FrameBufferBase + ScreenWidth*DestinationY + DestinationX;
++      for(row=0; row<Height; row++)
++      {
++        for(col=0; col<Width; col++)
++          DestinationBase[col]=SourceBase[col];
++        DestinationBase+=ScreenWidth;
++        SourceBase+=ScreenWidth;
++      } 
++      break;
++    default:
++      return -1;
++  }
++
++  return 0;
++}
++
++static grub_command_t cmd_linux, cmd_initrd;
+ GRUB_MOD_INIT(linux)
+ {
+   cmd_linux = grub_register_command ("linux", grub_cmd_linux,
+@@ -1012,10 +1116,24 @@ GRUB_MOD_INIT(linux)
+   cmd_initrd = grub_register_command ("initrd", grub_cmd_initrd,
+ 				      0, N_("Load initrd."));
+   my_mod = mod;
++
++  gop = grub_efi_locate_protocol (&graphics_output_guid, 0);
++  if (gop) {
++      ScreenWidth = gop->mode->info->width;
++      ScreenHeight = gop->mode->info->height;
++      ScreenDepth = 32;
++      LineLength = 4 * gop->mode->info->pixels_per_scanline;
++      FrameBufferBase = gop->mode->fb_base;
++      FrameBufferSize = gop->mode->fb_size;
++      old_blt = gop->blt;
++      gop->blt = new_blt;
++  }
+ }
+ 
+ GRUB_MOD_FINI(linux)
+ {
+   grub_unregister_command (cmd_linux);
+   grub_unregister_command (cmd_initrd);
++
++  gop->blt = old_blt;
+ }
