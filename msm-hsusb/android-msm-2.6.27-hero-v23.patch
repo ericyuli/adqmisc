@@ -1,0 +1,4980 @@
+diff --git a/arch/arm/mach-msm/Makefile b/arch/arm/mach-msm/Makefile
+index f11d11c..4f2fee2 100644
+--- a/arch/arm/mach-msm/Makefile
++++ b/arch/arm/mach-msm/Makefile
+@@ -9,6 +9,7 @@ obj-y += gpio.o generic_gpio.o
+ obj-y += nand_partitions.o
+ obj-y += drv_callback.o
+ obj-y += htc_port_list.o
++obj-y += mass_storage_stub.o
+ 
+ obj-$(CONFIG_MSM_FIQ_SUPPORT) += fiq_glue.o
+ obj-$(CONFIG_MSM_SMD) += smd.o smd_tty.o smd_qmi.o
+diff --git a/arch/arm/mach-msm/devices.c b/arch/arm/mach-msm/devices.c
+index 2952678..64fc2db 100644
+--- a/arch/arm/mach-msm/devices.c
++++ b/arch/arm/mach-msm/devices.c
+@@ -284,6 +284,12 @@ static struct platform_device msm_device_usb_mass_storage = {
+ 		},
+ };
+ #endif
++
++static void do_usb_send_connect_notify(struct work_struct *send_usb_wq);
++static struct work_struct usb_connect_notifier_wq;
++
++extern void mass_storage_stub_init(void);
++
+ void __init msm_add_usb_devices(void (*phy_reset) (void), void (*phy_shutdown) (void))
+ {
+ 	if (phy_reset)
+@@ -293,9 +299,10 @@ void __init msm_add_usb_devices(void (*phy_reset) (void), void (*phy_shutdown) (
+ 		msm_hsusb_pdata.phy_shutdown = phy_shutdown;
+ 
+ 	platform_device_register(&msm_device_hsusb);
+-#ifdef CONFIG_USB_FUNCTION_MASS_STORAGE
+ 	platform_device_register(&msm_device_usb_mass_storage);
+-#endif
++	INIT_WORK(&usb_connect_notifier_wq, do_usb_send_connect_notify);
++	
++	mass_storage_stub_init();
+ }
+ /*
+ void __init msm_change_usb_id(__u16 vendor_id, __u16 product_id)
+@@ -1198,3 +1205,47 @@ void board_get_mid_tag(char **ret_data)
+ 	*ret_data = mid_tag;
+ }
+ EXPORT_SYMBOL(board_get_mid_tag);
++
++static DEFINE_MUTEX(notify_sem);
++static DEFINE_MUTEX(vbus_notify_sem);
++static atomic_t atomic_usb_connected = ATOMIC_INIT(0);
++static struct work_struct usb_connect_notifier_wq;
++static void (*set_vbus_state)(int online);
++
++static void do_usb_send_connect_notify(struct work_struct *send_usb_wq)
++{
++	mutex_lock(&notify_sem);
++
++	htc_battery_usb_status_notifier_func(atomic_read(&atomic_usb_connected));
++
++	mutex_unlock(&notify_sem);
++}
++
++void msm_usb_set_connect_status(int connected)
++{
++	atomic_set(&atomic_usb_connected, connected);
++	schedule_work(&usb_connect_notifier_wq);
++}
++EXPORT_SYMBOL(msm_usb_set_connect_status);
++
++int msm_usb_get_connect_status()
++{
++	return atomic_read(&atomic_usb_connected);
++}
++EXPORT_SYMBOL(msm_usb_get_connect_status);
++
++void msm_hsusb_set_vbus_state(int online)
++{
++	mutex_lock(&vbus_notify_sem);
++	if (set_vbus_state)
++		(*set_vbus_state)(online);
++	mutex_unlock(&vbus_notify_sem);
++}
++
++void msm_hsusb_set_vbus_state_notifier(void (*setit)(int online))
++{
++	mutex_lock(&vbus_notify_sem);
++	set_vbus_state = setit;
++	mutex_unlock(&vbus_notify_sem);
++}
++EXPORT_SYMBOL(msm_hsusb_set_vbus_state_notifier);
+diff --git a/arch/arm/mach-msm/htc_battery.c b/arch/arm/mach-msm/htc_battery.c
+index 6893ece..13f32c3 100644
+--- a/arch/arm/mach-msm/htc_battery.c
++++ b/arch/arm/mach-msm/htc_battery.c
+@@ -205,12 +205,8 @@ static struct power_supply htc_power_supplies[] = {
+ 	},
+ };
+ 
+-static void usb_status_notifier_func(int online);
++void htc_battery_usb_status_notifier_func(int online);
+ static int g_usb_online;
+-static struct t_usb_status_notifier usb_status_notifier = {
+-	.name = "htc_battery",
+-	.func = usb_status_notifier_func,
+-};
+ 
+ /* -------------------------------------------------------------------------- */
+ /* For sleep charging screen. */
+@@ -479,7 +475,7 @@ int htc_cable_status_update(int status)
+ /* A9 reports USB charging when helf AC cable in and China AC charger. */
+ /* Work arround: notify userspace AC charging first,
+ and notify USB charging again when receiving usb connected notificaiton from usb driver. */
+-static void usb_status_notifier_func(int online)
++void htc_battery_usb_status_notifier_func(int online)
+ {
+ 	mutex_lock(&htc_batt_info.lock);
+ 	if (htc_batt_debug_mask & HTC_BATT_DEBUG_USB_NOTIFY)
+@@ -1231,7 +1227,6 @@ static int __init htc_battery_init(void)
+ 	wake_lock_init(&vbus_wake_lock, WAKE_LOCK_SUSPEND, "vbus_present");
+ 	mutex_init(&htc_batt_info.lock);
+ 	mutex_init(&htc_batt_info.rpc_lock);
+-	usb_register_notifier(&usb_status_notifier);
+ 	msm_rpc_create_server(&battery_server);
+ 	platform_driver_register(&htc_battery_driver);
+ 	batt_register_client(&batt_notify);
+diff --git a/arch/arm/mach-msm/include/mach/board.h b/arch/arm/mach-msm/include/mach/board.h
+index 2c8b1f0..5a72440 100644
+--- a/arch/arm/mach-msm/include/mach/board.h
++++ b/arch/arm/mach-msm/include/mach/board.h
+@@ -135,15 +135,6 @@ int __init msm_add_serial_devices(unsigned uart);
+ 
+ #if defined(CONFIG_USB_FUNCTION_MSM_HSUSB) || defined(CONFIG_USB_MSM_72K)
+ void msm_hsusb_set_vbus_state(int online);
+-/* START: add USB connected notify function */
+-struct t_usb_status_notifier{
+-	struct list_head notifier_link;
+-	const char *name;
+-	void (*func)(int online);
+-};
+-	int usb_register_notifier(struct t_usb_status_notifier *);
+-	static LIST_HEAD(g_lh_usb_notifier_list);
+-/* END: add USB connected notify function */
+ #else
+ static inline void msm_hsusb_set_vbus_state(int online) {}
+ #endif
+@@ -169,4 +160,9 @@ char *board_serialno(void);
+ extern int panel_type;
+ extern unsigned engineer_id;
+ 
++extern void htc_battery_usb_status_notifier_func(int online);
++extern void msm_usb_set_connect_status(int connected);
++extern int msm_usb_get_connect_status(void);
++extern void msm_hsusb_set_vbus_state_notifier(void (*setit)(int online));
++
+ #endif
+diff --git a/arch/arm/mach-msm/include/mach/msm_hsusb.h b/arch/arm/mach-msm/include/mach/msm_hsusb.h
+index da46bfd..3868107 100644
+--- a/arch/arm/mach-msm/include/mach/msm_hsusb.h
++++ b/arch/arm/mach-msm/include/mach/msm_hsusb.h
+@@ -21,7 +21,6 @@
+ 
+ /* platform device data for msm_hsusb driver */
+ 
+-#ifdef CONFIG_USB_FUNCTION
+ /* matches a product ID to a list of enabled functions */
+ struct msm_hsusb_product {
+ 	/* product ID for usb_device_descriptor.idProduct */
+@@ -32,7 +31,6 @@ struct msm_hsusb_product {
+ 	*/
+ 	__u32 functions;
+ };
+-#endif
+ 
+ struct msm_hsusb_platform_data {
+ 	/* hard reset the ULPI PHY */
+@@ -42,7 +40,6 @@ struct msm_hsusb_platform_data {
+ 	/* val, reg pairs terminated by -1 */
+ 	int *phy_init_seq;
+ 
+-#ifdef CONFIG_USB_FUNCTION
+ 	/* USB device descriptor fields */
+ 	__u16 vendor_id;
+ 
+@@ -66,7 +63,6 @@ struct msm_hsusb_platform_data {
+ 	*/
+ 	int num_products;
+ 	struct msm_hsusb_product *products;
+-#endif
+ };
+ 
+ #endif
+diff --git a/arch/arm/mach-msm/mass_storage_stub.c b/arch/arm/mach-msm/mass_storage_stub.c
+new file mode 100644
+index 0000000..8b08f5e
+--- /dev/null
++++ b/arch/arm/mach-msm/mass_storage_stub.c
+@@ -0,0 +1,320 @@
++/* drivers/usb/function/mass_storage.c
++ *
++ * Function Driver for USB Mass Storage
++ *
++ * Copyright (C) 2008 Google, Inc.
++ * Author: Mike Lockwood <lockwood@android.com>
++ *
++ * Based heavily on the file_storage gadget driver in
++ * drivers/usb/gadget/file_storage.c and licensed under the same terms:
++ *
++ * Copyright (C) 2003-2007 Alan Stern
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions, and the following disclaimer,
++ *    without modification.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The names of the above-listed copyright holders may not be used
++ *    to endorse or promote products derived from this software without
++ *    specific prior written permission.
++ *
++ * ALTERNATIVELY, this software may be distributed under the terms of the
++ * GNU General Public License ("GPL") as published by the Free Software
++ * Foundation, either version 2 of that License or (at your option) any
++ * later version.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
++ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
++ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
++ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "../../../drivers/usb/function/mass_storage.h"
++
++struct fsg_dev			*the_fsg;
++EXPORT_SYMBOL(the_fsg);
++
++static int cleanup;
++static DEFINE_MUTEX(mass_storage_stub_sem);
++
++static struct module *p_module;
++static ssize_t (*p_show_file)(struct device *dev, struct device_attribute *attr, char *buf);
++static ssize_t (*p_store_file)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
++static ssize_t (*p_store_mass_storage_enable)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
++static ssize_t (*p_show_mass_storage_enable)(struct device *dev, struct device_attribute *attr, char *buf);
++
++static ssize_t show_file(struct device *dev, struct device_attribute *attr,
++		char *buf)
++{
++	ssize_t rc = 0;
++
++	mutex_lock(&mass_storage_stub_sem);
++	try_module_get(p_module);
++	if (p_show_file)
++		rc = p_show_file(dev, attr, buf);
++	module_put(p_module);
++	mutex_unlock(&mass_storage_stub_sem);
++	return rc;
++}
++
++static ssize_t store_file(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	ssize_t rc = count;
++
++	mutex_lock(&mass_storage_stub_sem);
++	try_module_get(p_module);
++	if (p_store_file)
++		rc = p_store_file(dev, attr, buf, count);
++	module_put(p_module);
++	mutex_unlock(&mass_storage_stub_sem);
++	return rc;
++}
++
++static DEVICE_ATTR(file, 0444, show_file, store_file);
++
++/*-------------------------------------------------------------------------*/
++
++static ssize_t store_mass_storage_enable(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	ssize_t rc = count;
++
++	mutex_lock(&mass_storage_stub_sem);
++	try_module_get(p_module);
++	if (p_store_mass_storage_enable)
++		rc = p_store_mass_storage_enable(dev, attr, buf, count);
++	module_put(p_module);
++	mutex_unlock(&mass_storage_stub_sem);
++	return rc;
++}
++
++static ssize_t show_mass_storage_enable(struct device *dev, struct device_attribute *attr,
++		char *buf)
++{
++	ssize_t rc = 0;
++
++	mutex_lock(&mass_storage_stub_sem);
++	try_module_get(p_module);
++	if (p_show_mass_storage_enable)
++		rc = p_show_mass_storage_enable(dev, attr, buf);
++	module_put(p_module);
++	mutex_unlock(&mass_storage_stub_sem);
++	return rc;
++}
++
++static DEVICE_ATTR(mass_storage_enable, 0644, show_mass_storage_enable, store_mass_storage_enable);
++
++static int fsg_alloc(void)
++{
++	struct fsg_dev		*fsg;
++
++	fsg = kzalloc(sizeof *fsg, GFP_KERNEL);
++	if (!fsg)
++		return -ENOMEM;
++	spin_lock_init(&fsg->lock);
++	init_rwsem(&fsg->filesem);
++	kref_init(&fsg->ref);
++	init_completion(&fsg->thread_notifier);
++
++	the_fsg = fsg;
++	return 0;
++}
++
++static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
++{
++	return sprintf(buf, "%s\n", DRIVER_NAME);
++}
++
++static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
++{
++	struct fsg_dev	*fsg = container_of(sdev, struct fsg_dev, sdev);
++	return sprintf(buf, "%s\n", (fsg->config ? "online" : "offline"));
++}
++
++static void fsg_release(struct kref *ref)
++{
++	struct fsg_dev	*fsg = container_of(ref, struct fsg_dev, ref);
++
++	kfree(fsg->luns);
++	kfree(fsg);
++}
++
++static void lun_release(struct device *dev)
++{
++	struct fsg_dev	*fsg = dev_get_drvdata(dev);
++
++	kref_put(&fsg->ref, fsg_release);
++}
++
++static int fsg_remove(struct platform_device *pdev)
++{
++	int			i;
++	struct lun		*curlun;
++
++	/* Unregister the sysfs attribute files and the LUNs */
++	for (i = 0; i < the_fsg->nluns; ++i) {
++		curlun = &the_fsg->luns[i];
++		if (curlun->registered) {
++			device_remove_file(&curlun->dev, &dev_attr_file);
++			device_unregister(&curlun->dev);
++			curlun->registered = 0;
++		}
++	}
++
++	device_remove_file(&the_fsg->pdev->dev, &dev_attr_mass_storage_enable);
++	switch_dev_unregister(&the_fsg->sdev);
++	kref_put(&the_fsg->ref, fsg_release);
++
++	return 0;
++}
++
++static int fsg_probe(struct platform_device *pdev)
++{
++	struct usb_mass_storage_platform_data *pdata = pdev->dev.platform_data;
++	int		rc;
++	int			i;
++	struct lun		*curlun;
++
++	rc = fsg_alloc();
++	if (rc != 0)
++		goto fsg_alloc_fail;
++
++	the_fsg->pdev = pdev;
++	the_fsg->sdev.name = DRIVER_NAME;
++	the_fsg->nluns = pdata->nluns;
++	the_fsg->buf_size = pdata->buf_size;
++	the_fsg->vendor = pdata->vendor;
++	the_fsg->product = pdata->product;
++	the_fsg->release = pdata->release;
++	the_fsg->sdev.print_name = print_switch_name;
++	the_fsg->sdev.print_state = print_switch_state;
++	rc = switch_dev_register(&the_fsg->sdev);
++	if (rc < 0)
++		goto err_switch_dev_register;
++
++	rc = device_create_file(&the_fsg->pdev->dev,
++		&dev_attr_mass_storage_enable);
++	if (rc != 0) {
++		printk(KERN_WARNING "dev_attr_mass_storage_enable failed\n");
++		goto device_create_file_fail;
++	}
++
++	wake_lock_init(&the_fsg->wake_lock, WAKE_LOCK_SUSPEND,
++		       "usb_mass_storage");
++
++	dev_attr_file.attr.mode = 0644;
++
++	/* Find out how many LUNs there should be */
++	i = the_fsg->nluns;
++	if (i == 0)
++		i = 1;
++	if (i > MAX_LUNS) {
++		ERROR(the_fsg, "invalid number of LUNs: %d\n", i);
++		rc = -EINVAL;
++		goto bad_lun_count_fail;
++	}
++
++	/* Create the LUNs, open their backing files, and register the
++	 * LUN devices in sysfs. */
++	the_fsg->luns = kzalloc(i * sizeof(struct lun), GFP_KERNEL);
++	if (!the_fsg->luns) {
++		rc = -ENOMEM;
++		goto lun_alloc_fail;
++	}
++	the_fsg->nluns = i;
++
++	for (i = 0; i < the_fsg->nluns; ++i) {
++		curlun = &the_fsg->luns[i];
++		curlun->ro = 0;
++		curlun->dev.release = lun_release;
++		curlun->dev.parent = &the_fsg->pdev->dev;
++		dev_set_drvdata(&curlun->dev, the_fsg);
++		snprintf(curlun->dev.bus_id, BUS_ID_SIZE,
++				"lun%d", i);
++
++		rc = device_register(&curlun->dev);
++		if (rc != 0) {
++			INFO(the_fsg, "failed to register LUN%d: %d\n", i, rc);
++			goto luns_init_fail;
++		}
++		rc = device_create_file(&curlun->dev, &dev_attr_file);
++		if (rc != 0) {
++			ERROR(the_fsg, "device_create_file failed: %d\n", rc);
++			device_unregister(&curlun->dev);
++			goto luns_init_fail;
++		}
++		curlun->registered = 1;
++		kref_get(&the_fsg->ref);
++	}
++
++	
++	cleanup = 1;		
++	return 0;
++
++luns_init_fail:
++	for (i = 0; i < the_fsg->nluns; ++i) {
++		curlun = &the_fsg->luns[i];
++		if (curlun->registered) {
++			device_remove_file(&curlun->dev, &dev_attr_file);
++			device_unregister(&curlun->dev);
++			curlun->registered = 0;
++		}
++	}
++lun_alloc_fail:
++bad_lun_count_fail:
++	device_remove_file(&the_fsg->pdev->dev, &dev_attr_mass_storage_enable);
++device_create_file_fail:
++	switch_dev_unregister(&the_fsg->sdev);
++err_switch_dev_register:
++	kref_put(&the_fsg->ref, fsg_release);
++fsg_alloc_fail:
++	return rc;
++}
++
++static struct platform_driver fsg_driver = {
++	.probe = fsg_probe,
++	.remove = fsg_remove,
++	.driver = { .name = DRIVER_NAME, },
++};
++
++void mass_storage_stub_init(void)
++{
++	platform_driver_register(&fsg_driver);
++}
++
++void mass_storage_stub_exit(void)
++{
++	if (cleanup)
++		platform_driver_unregister(&fsg_driver);
++}
++
++void mass_storage_stub_set_handlers(
++	struct module *_p_module,
++	ssize_t (*_p_show_file)(struct device *dev, struct device_attribute *attr, char *buf),
++	ssize_t (*_p_store_file)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count),
++	ssize_t (*_p_store_mass_storage_enable)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count),
++	ssize_t (*_p_show_mass_storage_enable)(struct device *dev, struct device_attribute *attr, char *buf)) 
++{
++	mutex_lock(&mass_storage_stub_sem);
++	p_module = _p_module;
++	p_show_file = _p_show_file;
++	p_store_file = _p_store_file;
++	p_store_mass_storage_enable = _p_store_mass_storage_enable;
++	p_show_mass_storage_enable = _p_show_mass_storage_enable;	
++	mutex_unlock(&mass_storage_stub_sem);
++}
++EXPORT_SYMBOL(mass_storage_stub_set_handlers);
+diff --git a/arch/arm/mach-msm/smd.c b/arch/arm/mach-msm/smd.c
+index a166382..ed7ed35 100644
+--- a/arch/arm/mach-msm/smd.c
++++ b/arch/arm/mach-msm/smd.c
+@@ -773,6 +773,7 @@ int smd_open(const char *name, smd_channel_t **_ch,
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL(smd_open);
+ 
+ int smd_close(smd_channel_t *ch)
+ {
+@@ -795,21 +796,25 @@ int smd_close(smd_channel_t *ch)
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL(smd_close);
+ 
+ int smd_read(smd_channel_t *ch, void *data, int len)
+ {
+ 	return ch->read(ch, data, len);
+ }
++EXPORT_SYMBOL(smd_read);
+ 
+ int smd_write(smd_channel_t *ch, const void *data, int len)
+ {
+ 	return ch->write(ch, data, len);
+ }
++EXPORT_SYMBOL(smd_write);
+ 
+ int smd_read_avail(smd_channel_t *ch)
+ {
+ 	return ch->read_avail(ch);
+ }
++EXPORT_SYMBOL(smd_read_avail);
+ 
+ int smd_write_avail(smd_channel_t *ch)
+ {
+diff --git a/drivers/usb/Kconfig b/drivers/usb/Kconfig
+index 029d956..3de3d52 100644
+--- a/drivers/usb/Kconfig
++++ b/drivers/usb/Kconfig
+@@ -55,6 +55,9 @@ config USB_ARCH_HAS_EHCI
+ 	default y if PPC_83xx
+ 	default y if SOC_AU1200
+ 	default y if ARCH_IXP4XX
++	default y if ARCH_MSM7XXX
++	default y if ARCH_MSM
++	default y if ARCH_MSM7X00A
+ 	default PCI
+ 
+ # ARM SA1111 chips have a non-PCI based "OHCI-compatible" USB host interface.
+diff --git a/drivers/usb/function/Kconfig b/drivers/usb/function/Kconfig
+index e013a97..01299c2 100644
+--- a/drivers/usb/function/Kconfig
++++ b/drivers/usb/function/Kconfig
+@@ -1,21 +1,31 @@
+-menu "USB Function Support"
+-
+-config USB_FUNCTION
+-	boolean "Support for USB Function Drivers"
++menuconfig USB_FUNCTION
++	tristate "Support for USB Function Drivers"
+ 	help
+ 	   The USB Function framework is similar to the Gadget framework
+ 	   but a little simpler and a little more plugable.  It trades
+ 	   some flexibility in the framework for smaller and simpler
+ 	   function drivers that can be combined into a composite driver.
+ 
++if USB_FUNCTION
++
++config  USB_FUNCTION_SELECTED
++        boolean
++
+ choice
+ 	prompt "USB Peripheral Controller"
+ 	depends on USB_FUNCTION
+ 	
+ config USB_FUNCTION_MSM_HSUSB
+ 	boolean "MSM7K Highspeed USB Peripheral Controller"
++	select USB_FUNCTION_SELECTED
+ 	depends on ARCH_MSM7XXX
+ 
++config USB_MSM_HSUSB
++        tristate
++        depends on USB_FUNCTION_MSM_HSUSB
++        default USB_FUNCTION
++        select USB_FUNCTION_SELECTED
++
+ endchoice
+ 
+ config USB_FUNCTION_NULL
+@@ -49,10 +59,6 @@ config USB_FUNCTION_DIAG
+ config USB_FUNCTION_ETHER
+ 	boolean "USB Ethernet Function"
+ 	depends on USB_FUNCTION
+-config USB_FUNCTION_RNDIS
+-        boolean "USB RNDIS support"
+-        depends on USB_FUNCTION_ETHER
+-        default y
+ 
+ config USB_FUNCTION_FSYNC
+ 	boolean "USB MSM7K FSYNC Function"
+@@ -62,12 +68,8 @@ config USB_FUNCTION_SERIAL
+ 	boolean "USB SERIAL Function"
+ 	depends on USB_FUNCTION
+ 
+-config USB_FUNCTION_PROJECTOR
+-	boolean "USB PROJECTOR Function"
+-	depends on USB_FUNCTION
+-
+ config USB_FUNCTION_MTP_TUNNEL
+ 	boolean "MTP Tunnel Transport Function"
+ 	depends on USB_FUNCTION
+ 
+-endmenu
++endif # USB_FUNCTION
+diff --git a/drivers/usb/function/Makefile b/drivers/usb/function/Makefile
+index 27b8ab4..ad4fa0e 100644
+--- a/drivers/usb/function/Makefile
++++ b/drivers/usb/function/Makefile
+@@ -1,15 +1,37 @@
+ 
+-obj-$(CONFIG_USB_FUNCTION_MSM_HSUSB)	+= msm_hsusb.o
+-obj-$(CONFIG_USB_FUNCTION_NULL)		+= null.o
+-obj-$(CONFIG_USB_FUNCTION_NULL)		+= zero.o
+-obj-$(CONFIG_USB_FUNCTION_LOOPBACK)	+= loopback.o
+-obj-$(CONFIG_USB_FUNCTION_ADB)		+= adb.o
+-obj-$(CONFIG_USB_FUNCTION_UMS)		+= ums.o
+-obj-$(CONFIG_USB_FUNCTION_MASS_STORAGE)		+= mass_storage.o
+-obj-$(CONFIG_USB_FUNCTION_DIAG)		+= diag.o
+-obj-$(CONFIG_USB_FUNCTION_ETHER)	+= ether.o
+-obj-$(CONFIG_USB_FUNCTION_SERIAL)	+= fserial.o
+-obj-$(CONFIG_USB_FUNCTION_FSYNC)	+= fsync.o
+-obj-$(CONFIG_USB_FUNCTION_PROJECTOR)	+= projector.o
+-obj-$(CONFIG_USB_FUNCTION_RNDIS)        += rndis.o
+-obj-$(CONFIG_USB_FUNCTION_MTP_TUNNEL)   += mtp_tunnel.o
++ifeq ($(CONFIG_USB_FUNCTION_NULL),y)
++	USB_FUNCTION_DRIVERS		+= null.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_ZERO),y)
++	USB_FUNCTION_DRIVERS		+= zero.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_LOOPBACK),y)
++	USB_FUNCTION_DRIVERS		+= loopback.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_ADB),y)
++	USB_FUNCTION_DRIVERS		+= adb.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_UMS),y)
++	USB_FUNCTION_DRIVERS		+= ums.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_MASS_STORAGE),y)
++	USB_FUNCTION_DRIVERS		+= mass_storage.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_DIAG),y)
++	USB_FUNCTION_DRIVERS		+= diag.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_ETHER),y)
++	USB_FUNCTION_DRIVERS		+= ether.o rndis.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_SERIAL),y)
++	USB_FUNCTION_DRIVERS		+= fserial.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_FSYNC),y)
++	USB_FUNCTION_DRIVERS		+= fsync.o
++endif
++ifeq ($(CONFIG_USB_FUNCTION_MTP_TUNNEL),y)
++	USB_FUNCTION_DRIVERS		+= mtp_tunnel.o
++endif
++
++f_msm_hsusb-objs			:= msm_hsusb.o $(USB_FUNCTION_DRIVERS)
++obj-$(CONFIG_USB_MSM_HSUSB)		+= f_msm_hsusb.o
+diff --git a/drivers/usb/function/adb.c b/drivers/usb/function/adb.c
+index 7f1dce9..ebaf376 100644
+--- a/drivers/usb/function/adb.c
++++ b/drivers/usb/function/adb.c
+@@ -381,6 +381,13 @@ static void adb_unbind(void *_ctxt)
+ 
+ 	DBG("%s()\n", __func__);
+ 
++	if (ctxt->read_req) {
++		usb_ept_free_req(ctxt->out, ctxt->read_req);
++		ctxt->read_req = 0;
++	}
++	while ((req = req_get(ctxt, &ctxt->rx_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
+ 	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
+ 		usb_ept_free_req(ctxt->out, req);
+ 	}
+@@ -388,14 +395,11 @@ static void adb_unbind(void *_ctxt)
+ 		usb_ept_free_req(ctxt->in, req);
+ 	}
+ 
+-	ctxt->online = 0;
+-	ctxt->error = 1;
+-
+-	/* readers may be blocked waiting for us to go online */
+-	wake_up(&ctxt->read_wq);
++	misc_deregister(&adb_device);
++	misc_deregister(&adb_enable_device);
+ }
+ 
+-static void adb_bind(struct usb_endpoint **ept, void *_ctxt)
++static int adb_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct adb_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+@@ -408,7 +412,7 @@ static void adb_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for (n = 0; n < RX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->out, 512);
+-		if (req == 0) goto fail;
++		if (req == 0) goto out_alloc_fail;
+ 		req->context = ctxt;
+ 		req->complete = adb_complete_out;
+ 		req_put(ctxt, &ctxt->rx_idle, req);
+@@ -416,22 +420,33 @@ static void adb_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for (n = 0; n < TX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->in, 4096);
+-		if (req == 0) goto fail;
++		if (req == 0) goto in_alloc_fail;
+ 		req->context = ctxt;
+ 		req->complete = adb_complete_in;
+ 		req_put(ctxt, &ctxt->tx_idle, req);
+ 	}
+ 
++	if (misc_register(&adb_device))
++		goto misc_device_fail_1;
++	if (misc_register(&adb_enable_device))
++		goto misc_device_fail_2;
++
+ 	DBG("%s: allocated %d rx and %d tx requests\n",
+ 	       __func__, RX_REQ_MAX, TX_REQ_MAX);
++	return 0;
+ 
+-	misc_register(&adb_device);
+-	misc_register(&adb_enable_device);
+-	return;
+-
+-fail:
+-	printk(KERN_ERR "%s() could not allocate requests\n", __func__);
+-	adb_unbind(ctxt);
++misc_device_fail_2:
++	misc_deregister(&adb_device);
++misc_device_fail_1:
++in_alloc_fail:
++	while ((req = req_get(ctxt, &ctxt->tx_idle))) {
++		usb_ept_free_req(ctxt->in, req);
++	}
++out_alloc_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++	return -1;
+ }
+ 
+ static void adb_configure(int configured, void *_ctxt)
+@@ -490,7 +505,7 @@ static struct usb_function usb_func_adb = {
+ 	.ifc_index = STRING_ADB,
+ };
+ 
+-static int __init adb_init(void)
++void adb_init(void)
+ {
+ 	struct adb_context *ctxt = &_context;
+ 	DBG("adb_init()\n");
+@@ -509,7 +524,5 @@ static int __init adb_init(void)
+ 	INIT_LIST_HEAD(&ctxt->rx_done);
+ 	INIT_LIST_HEAD(&ctxt->tx_idle);
+ 
+-	return usb_function_register(&usb_func_adb);
++	usb_function_register(&usb_func_adb);
+ }
+-
+-module_init(adb_init);
+diff --git a/drivers/usb/function/diag.c b/drivers/usb/function/diag.c
+index 6fd9716..d2a72e7 100644
+--- a/drivers/usb/function/diag.c
++++ b/drivers/usb/function/diag.c
+@@ -46,8 +46,6 @@
+ 
+ #define DIAG_FUNCTION_NAME "diag"
+ 
+-int g_bUsbDiagMode = 0;
+-
+ struct diag_context
+ {
+ 	int online;
+@@ -107,6 +105,7 @@ struct diag_context
+ };
+ 
+ static struct diag_context _context;
++static int cleanup = 0;
+ 
+ struct device diag_device;
+ enum data_access {
+@@ -381,18 +380,24 @@ done:
+ 
+ }
+ 
++static int msm_diag_remove(struct platform_device *pdev)
++{
++	struct diag_context *ctxt = &_context;
++	smd_close(ctxt->ch);
++	return 0;
++}
++
+ static int msm_diag_probe(struct platform_device *pdev)
+ {
+ 	struct diag_context *ctxt = &_context;
+-	int r;
+ 
+ 	ctxt->pdev = pdev;
+-	r = smd_open("SMD_DIAG", &ctxt->ch, ctxt, smd_diag_notify);
+-	return 0;
++	return smd_open("SMD_DIAG", &ctxt->ch, ctxt, smd_diag_notify);
+ }
+ 
+ static struct platform_driver msm_smd_ch1_driver = {
+ 	.probe = msm_diag_probe,
++	.remove = msm_diag_remove,
+ 	.driver = {
+ 		.name = DIAG_FUNCTION_NAME,
+ 		.owner = THIS_MODULE,
+@@ -633,7 +638,7 @@ static int diag_open(struct inode *ip, struct file *fp)
+ {
+ 	struct diag_context *ctxt = &_context;
+ 	struct usb_request *req;
+-	
++
+ 	if (_lock(&ctxt->open_excl))
+ 		return -EBUSY;
+ 
+@@ -642,6 +647,8 @@ static int diag_open(struct inode *ip, struct file *fp)
+ 	ctxt->error = 0;
+ 
+ 	req = usb_ept_alloc_req(ctxt->in, 8192);
++	if (req == NULL)
++		return -ENOMEM;
+ 
+ 	req->context = ctxt;
+ 	req->complete = diag_complete_in;
+@@ -873,15 +880,20 @@ static void diag_unbind(void *_ctxt)
+ 	struct diag_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+ 
+-	printk(KERN_DEBUG "diag_unbind()\n");
+-
+-	misc_deregister(&diag_device_fops);
+-	misc_deregister(&diag2arm9_device);
+-
+-	device_remove_file(&diag_device, &dev_attr_diag_xfer_count);
+-	device_unregister(&diag_device);
+-	smd_xfer_count_func(0,data_set_clear);
+-
++	if (ctxt->read_req) {
++		usb_ept_free_req(ctxt->out, ctxt->read_req);
++		ctxt->read_req = 0;
++	}
++	if (ctxt->read_arm9_req) {
++		usb_ept_free_req(ctxt->out, ctxt->read_arm9_req);
++		ctxt->read_arm9_req = 0;
++	}
++	while ((req = get_req(ctxt, &ctxt->rx_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++	while ((req = get_req(ctxt, &ctxt->rx_arm9_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
+ 	while ((req = get_req(ctxt, &ctxt->rx_idle))) {
+ 		usb_ept_free_req(ctxt->out, req);
+ 	}
+@@ -892,15 +904,15 @@ static void diag_unbind(void *_ctxt)
+ 		usb_ept_free_req(ctxt->out, req);
+ 	}
+ 
+-	ctxt->online = 0;
+-	ctxt->error = 1;
++	misc_deregister(&diag_device_fops);
++	misc_deregister(&diag2arm9_device);
+ 
+-	/* readers may be blocked waiting for us to go online */
+-	wake_up(&ctxt->read_wq);
+-	wake_up(&ctxt->read_arm9_wq);
++	device_remove_file(&diag_device, &dev_attr_diag_xfer_count);
++	device_unregister(&diag_device);
++	smd_xfer_count_func(0,data_set_clear);
+ }
+ 
+-static void diag_bind(struct usb_endpoint **ept, void *_ctxt)
++static int diag_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct diag_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+@@ -914,7 +926,7 @@ static void diag_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for (n = 0; n < RX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->out, 8192);
+-		if (req == 0) goto fail;
++		if (req == 0) goto rx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = diag_complete_out;
+ 		put_req(ctxt, &ctxt->rx_idle, req);
+@@ -922,7 +934,7 @@ static void diag_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for (n = 0; n < TX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->in, 8192);
+-		if (req == 0) goto fail;
++		if (req == 0) goto tx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = diag_complete_in;
+ 		put_req(ctxt, &ctxt->tx_idle, req);
+@@ -930,36 +942,54 @@ static void diag_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for (n = 0; n < RX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->out, 8192);
+-		if (req == 0) goto fail;
++		if (req == 0) goto rx_arm9_idle_fail;
+ 		req->context = ctxt;
+ 		put_req(ctxt, &ctxt->rx_arm9_idle, req);
+ 	}
+ 
+-	printk(KERN_DEBUG
+-	       "diag_bind() allocated %d rx and %d tx requests\n",
+-	       RX_REQ_MAX, TX_REQ_MAX);
+-
+-	misc_register(&diag_device_fops);
+-	misc_register(&diag2arm9_device);
++	if (misc_register(&diag_device_fops))
++		goto misc_register_1_fail;
++	if (misc_register(&diag2arm9_device))
++		goto misc_register_2_fail;
+ 
+ 	diag_device.release = diag_dev_release;
+ 	diag_device.parent = &ctxt->pdev->dev;
+ 	strcpy(diag_device.bus_id, "interface");
+ 	if (device_register(&diag_device) != 0) {
+ 		DBG("diag failed to register device\n");
+-		goto fail;
++		goto device_register_fail;
+ 	}
+ 	if (device_create_file(&diag_device, &dev_attr_diag_xfer_count) != 0) {
+ 		DBG("diag device_create_file failed");
+-		device_unregister(&diag_device);
+-		goto fail;
++		goto device_create_file_fail;
+ 	}
+ 	smd_xfer_count_func(0,data_set_clear);
+-	return;
+ 
+-fail:
+-	printk(KERN_WARNING "diag_bind() could not allocate requests\n");
+-	diag_unbind(ctxt);
++	printk(KERN_DEBUG
++	       "diag_bind() allocated %d rx and %d tx requests\n",
++	       RX_REQ_MAX, TX_REQ_MAX);
++	return 0;
++
++device_create_file_fail:
++	device_unregister(&diag_device);
++device_register_fail:
++	misc_deregister(&diag2arm9_device);
++misc_register_2_fail:
++	misc_deregister(&diag_device_fops);
++misc_register_1_fail:
++rx_arm9_idle_fail:
++	while ((req = get_req(ctxt, &ctxt->rx_arm9_idle))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++tx_idle_fail:
++	while ((req = get_req(ctxt, &ctxt->tx_idle))) {
++		usb_ept_free_req(ctxt->in, req);
++	}
++rx_idle_fail:
++	while ((req = get_req(ctxt, &ctxt->rx_idle))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++	return -1;
+ }
+ 
+ static void diag_configure(int configured, void *_ctxt)
+@@ -1026,7 +1056,7 @@ static struct usb_function usb_func_diag = {
+ 
+ };
+ 
+-static int __init diag_init(void)
++void diag_init(void)
+ {
+ 	int r, i;
+ 	struct diag_context *ctxt = &_context;
+@@ -1061,27 +1091,29 @@ static int __init diag_init(void)
+ 		ctxt->id_table[i] = 0;
+ 
+ 	r = platform_driver_register(&msm_smd_ch1_driver);
+-	if(r < 0)	{
+-		printk(KERN_ERR "%s: Register driver fail\n", __func__);
+-		return r;
+-	}
++	if(r < 0)
++		goto platform_driver_register_fail;
+ 	r = platform_device_register(&diag_plat_device);
+-	if (r < 0) {
+-		printk(KERN_ERR "%s: Register device fail\n", __func__);
+-		goto fail_register_device;
+-	}
++	if (r < 0)
++		goto platform_device_register_fail;
+ 	r = usb_function_register(&usb_func_diag);
+-	if (r < 0) {
+-		printk(KERN_ERR "%s: Register function fail\n", __func__);
+-		goto fail_function_device;
+-	}
+-	return r;
+-fail_function_device:
++	if (r < 0)
++		goto usb_function_register_fail;
++	cleanup = 1;
++	return;
++
++usb_function_register_fail:
+ 	platform_device_unregister(&diag_plat_device);
+-fail_register_device:
++platform_device_register_fail:
+ 	platform_driver_unregister(&msm_smd_ch1_driver);
+-
+-	return r;
++platform_driver_register_fail:
++	return;
+ }
+ 
+-module_init(diag_init);
++void diag_exit(void)
++{
++	if (cleanup) {
++		platform_driver_unregister(&msm_smd_ch1_driver);
++		platform_device_unregister(&diag_plat_device);
++	}
++}
+diff --git a/drivers/usb/function/ether.c b/drivers/usb/function/ether.c
+index 4e5c836..066a479 100755
+--- a/drivers/usb/function/ether.c
++++ b/drivers/usb/function/ether.c
+@@ -49,7 +49,9 @@
+ 
+ static char		manufacturer [10] = "HTC";
+ 
++static struct net_device *the_dev;
+ static int enabled = 0;
++static int cleanup = 0;
+ 
+ #define STATUS_INTERVAL_MSEC 9 /* 2^8*125us = 32ms */
+ 
+@@ -193,7 +195,7 @@ static void ether_in_complete(struct usb_endpoint *ept,
+ 			      struct usb_request *req);
+ static void ether_out_complete(struct usb_endpoint *ept,
+ 			       struct usb_request *req);
+-static void eth_bind(struct usb_endpoint **ept,
++static int eth_bind(struct usb_endpoint **ept,
+ 				void *_ctxt);
+ static void eth_unbind(void *_ctxt);
+ 
+@@ -324,27 +326,23 @@ static void eth_unbind(void *_ctxt)
+ 
+ 	while ((req = req_get(ctxt, &ctxt->tx_intr_reqs))) {
+ 		usb_ept_free_req(ctxt->intr_in, req);
+-    }
++	}
+ 	while ((req = req_get(ctxt, &ctxt->rx_cmd_reqs))) {
+ 		usb_ept_free_req(ctxt->ep0out, req);
+ 	}
+ 	while ((req = req_get(ctxt, &ctxt->rx_reqs))) {
+ 		usb_ept_free_req(ctxt->out, req);
+-    }
++	}
+ 	while ((req = req_get(ctxt, &ctxt->tx_reqs))) {
+ 		usb_ept_free_req(ctxt->in, req);
+ 	}
+-	if (ctxt->registered == 1) {
+-		device_remove_file(&ctxt->dev->dev, &dev_attr_enable);
+-		ctxt->registered = 0;
+-	}
++
++	device_remove_file(&ctxt->dev->dev, &dev_attr_enable);
+ 	rndis_deregister (ctxt->rndis_config);
+-	//rndis_exit ();
+-	//unregister_netdev (ctxt->dev);
+-	//free_netdev(ctxt->dev);
++	rndis_exit();
+ }
+ 
+-static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
++static int eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct ether_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+@@ -368,6 +366,7 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	for (n = 0; n < MAX_INTR_TX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->intr_in, 8);
+ 		if (!req)
++			goto tx_intr_reqs_fail;
+ 			break;
+ 		req->complete = rndis_control_ack_complete;
+ 		spin_lock_irqsave(&ctxt->lock, flags);
+@@ -378,7 +377,7 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	for (n = 0; n < MAX_EP0_RX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->ep0out, 4096);
+ 		if (!req)
+-			break;
++			goto rx_cmd_reqs_fail;
+ 		req->complete = receive_rndis_command;
+ 		spin_lock_irqsave(&ctxt->lock, flags);
+ 		list_add_tail(&req->list, &ctxt->rx_cmd_reqs);
+@@ -388,7 +387,7 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	for (n = 0; n < MAX_RX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->out, 0);
+ 		if (!req)
+-			break;
++			goto rx_reqs_fail;
+ 		req->complete = ether_out_complete;
+ 		spin_lock_irqsave(&ctxt->lock, flags);
+ 		list_add_tail(&req->list, &ctxt->rx_reqs);
+@@ -397,7 +396,7 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	for (n = 0; n < MAX_TX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->in, 0);
+ 		if (!req)
+-			break;
++			goto tx_reqs_fail;
+ 		req->complete = ether_in_complete;
+ 		spin_lock_irqsave(&ctxt->lock, flags);
+ 		list_add_tail(&req->list, &ctxt->tx_reqs);
+@@ -406,13 +405,13 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	ifc_desc= get_ifc_desc("ether");
+ 	if (!ifc_desc)
+-		goto fail;
++		goto get_ifc_desc_fail;
+ 	control_intf.bInterfaceNumber = ifc_desc[0].bInterfaceNumber;
+ 	data_intf.bInterfaceNumber = ifc_desc[1].bInterfaceNumber;
+ 
+ 	ept_info = get_ept_info("ether");
+ 	if (!ept_info)
+-		goto fail;
++		goto get_ept_info_fail;
+ 
+ 	status_desc.bEndpointAddress = ept_info[0].desc.bEndpointAddress;
+ 	sink_desc.bEndpointAddress = ept_info[1].desc.bEndpointAddress;
+@@ -425,14 +424,14 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	status = device_create_file(&ctxt->dev->dev, &dev_attr_enable);
+ 	if (status != 0) {
+ 		printk(KERN_ERR "ether device_create_file failed: %d\n", status);
+-        goto fail;
++		goto device_create_file_fail;
+ 	}
+ 	ctxt->registered = 1;
+ 	ctxt->online = 0;
+ 	status = rndis_init();
+ 	if (status < 0) {
+ 		printk(KERN_ERR "can't init RNDIS, %d\n", status);
+-		goto fail;
++		goto rndis_init_fail;
+ 	}
+ 
+ 	netif_stop_queue (ctxt->dev);
+@@ -441,26 +440,48 @@ static void eth_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	ctxt->rndis_config = rndis_register (rndis_control_ack);
+ 	if (ctxt->rndis_config < 0) {
+ 		printk(KERN_ERR "ether bind: rndis_register fial, %d\n", ctxt->rndis_config);
+-		//unregister_netdev (ctxt->dev);
+-		goto fail;
++		goto rndis_register_fail;
+ 	}
+ 
+ 	rndis_set_host_mac (ctxt->rndis_config, ctxt->host_mac);
+ 	if (rndis_set_param_dev (ctxt->rndis_config, ctxt->dev,
+ 					 &ctxt->stats, &ctxt->cdc_filter))
+-		goto fail;
++		goto rndis_set_fail;
+ 	if (rndis_set_param_vendor(ctxt->rndis_config, vendorID,
+ 					manufacturer))
+-		goto fail;
++		goto rndis_set_fail;
+ 	if (rndis_set_param_medium(ctxt->rndis_config,
+ 					NDIS_MEDIUM_802_3, 0))
+-		goto fail;
+-
+-	return;
++		goto rndis_set_fail;
++	return 0;
+ 
+-fail:
+-	eth_unbind (ctxt);
+-	return;
++rndis_set_fail:
++	rndis_deregister(ctxt->rndis_config);
++rndis_register_fail:
++	rndis_exit();
++rndis_init_fail:
++	device_remove_file(&ctxt->dev->dev, &dev_attr_enable);
++device_create_file_fail:
++get_ept_info_fail:
++get_ifc_desc_fail:
++tx_reqs_fail:
++	while ((req = req_get(ctxt, &ctxt->tx_reqs))) {
++		usb_ept_free_req(ctxt->in, req);
++	}
++rx_reqs_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_reqs))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++rx_cmd_reqs_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_cmd_reqs))) {
++		usb_ept_free_req(ctxt->ep0out, req);
++	}
++tx_intr_reqs_fail:
++	while ((req = req_get(ctxt, &ctxt->tx_intr_reqs))) {
++		usb_ept_free_req(ctxt->intr_in, req);
++	}
++	printk(KERN_ERR "ether_bind() failed\n");
++	return -1;
+ }
+ 
+ static void ether_in_complete(struct usb_endpoint *ept,
+@@ -795,7 +816,7 @@ static struct net_device_stats *usb_ether_get_stats(struct net_device *dev)
+ 	return &ctxt->stats;
+ }
+ 
+-static void __init usb_ether_setup(struct net_device *dev)
++static void usb_ether_setup(struct net_device *dev)
+ {
+ 	struct ether_context *ctxt = netdev_priv(dev);
+ 
+@@ -818,35 +839,42 @@ static void __init usb_ether_setup(struct net_device *dev)
+ 	random_ether_addr(ctxt->host_mac);
+ }
+ 
+-static int __init ether_init(void)
++int ether_init(void)
+ {
+ 	struct net_device *dev;
+ 	struct ether_context *ctxt;
+-	int ret;
++	int ret = 0;
+ 
+ 	dev = alloc_netdev(sizeof(struct ether_context),
+ 			   "usb%d", usb_ether_setup);
+ 	if (!dev)
+-		return -ENOMEM;
++		goto alloc_netdev_fail;
++	the_dev = dev;
+ 
+ 	ret = register_netdev(dev);
+ 	if (ret)
+-		goto err_register_netdev;
++		goto register_netdev_fail;
+ 
+ 	ctxt = netdev_priv(dev);
+ 	usb_func_ether.context = ctxt;
+ 	ret = usb_function_register(&usb_func_ether);
+ 	if (ret < 0)
+-		goto err_register_function;
+-	return ret;
++		goto usb_function_register_fail;
++	cleanup = 1;
++	return 0;
+ 
+-err_register_function:
++usb_function_register_fail:
+ 	unregister_netdev(dev);
+-err_register_netdev:
++register_netdev_fail:
+ 	free_netdev(dev);
+-
++alloc_netdev_fail:
+ 	return ret;
+-
+ }
+ 
+-module_init(ether_init);
++void ether_exit(void)
++{
++	if (cleanup) {
++		unregister_netdev(the_dev);
++		free_netdev(the_dev);
++	}
++}
+diff --git a/drivers/usb/function/fserial.c b/drivers/usb/function/fserial.c
+index dbe342e..b53adc5 100644
+--- a/drivers/usb/function/fserial.c
++++ b/drivers/usb/function/fserial.c
+@@ -115,13 +115,10 @@ struct userial_context{
+ };
+ static struct userial_context _context;
+ struct device fserial_dev;
++static int cleanup;
+ 
+ /* Functions */
+ 
+-/* module */
+-static int __init fs_module_init(void);
+-static void __exit fs_module_exit(void);
+-
+ /* tty driver */
+ static int fs_open(struct tty_struct *tty, struct file *file);
+ static void fs_close(struct tty_struct *tty, struct file *file);
+@@ -145,7 +142,7 @@ static void fs_read_complete(struct usb_endpoint *ep, struct usb_request *req);
+ static void fs_write_complete(struct usb_endpoint *ep, struct usb_request *req);
+ 
+ /* gadget driver */
+-static void fs_bind(struct usb_endpoint **ept, void *_ctxt);
++static int fs_bind(struct usb_endpoint **ept, void *_ctxt);
+ static void fs_unbind(void *_ctxt);
+ static int fs_setup( struct usb_ctrlrequest *ctrl, void* buf, int len, void *_ctxt);
+ //static void fs_setup_complete(struct usb_endpoint *ep, struct usb_request *req);
+@@ -244,9 +241,6 @@ module_param(write_buf_size, uint, S_IRUGO);
+ MODULE_PARM_DESC(write_buf_size, "Write buffer size, default=8192");
+ 
+ 
+-module_init(fs_module_init);
+-module_exit(fs_module_exit);
+-
+ static void fserial_dev_release (struct device *dev) {}
+ 
+ static int fserial_probe (struct platform_device *pdev)
+@@ -297,23 +291,18 @@ static DEVICE_ATTR(fserial_enable, 0644, show_fserial_enable, store_fserial_enab
+ 
+ 
+ /*
+-*  fs_module_init
++*  fs_init
+ *
+ *  Register as a USB gadget driver and a tty driver.
+ */
+-static int __init fs_module_init(void)
++void fs_init(void)
+ {
+ 	int i;
+ 	int retval;
+-	retval = usb_function_register(&usb_func_userial);
+-	if (retval) {
+-		printk(KERN_ERR "fs_module_init: cannot register function driver, ret=%d\n", retval);
+-		return retval;
+-	}
+ 
+ 	fs_tty_driver = alloc_tty_driver(FS_NUM_PORTS);
+ 	if (!fs_tty_driver)
+-		return -ENOMEM;
++		goto alloc_tty_driver_fail;
+ 	fs_tty_driver->owner = THIS_MODULE;
+ 	fs_tty_driver->driver_name = FS_SHORT_NAME;
+ 	fs_tty_driver->name = "ttyfs";
+@@ -336,36 +325,47 @@ static int __init fs_module_init(void)
+ 		mutex_init(&fs_open_close_lock[i]);
+ 
+ 	retval = tty_register_driver(fs_tty_driver);
+-	if (retval) {
+-		put_tty_driver(fs_tty_driver);
+-		printk(KERN_ERR "fs_module_init: cannot register tty driver, ret=%d\n", retval);
+-		return retval;
+-	}
++	if (retval)
++		goto tty_register_driver_fail;
+ 
+ 	retval = platform_driver_register (&fserial_driver);
+ 	if (retval < 0)
+-		return retval;
++		goto platform_driver_register_fail;
+ 	retval = platform_device_register (&fserial_device);
+ 	if (retval < 0)
+-		goto err_register_device;
+-
+-	return 0;
++		goto platform_device_register_fail;
++	retval = usb_function_register(&usb_func_userial);
++	if (retval)
++		goto usb_function_register_fail;
++	cleanup = 1;
++	return;
+ 
+-err_register_device:
++usb_function_register_fail:
++	platform_device_unregister(&fserial_device);
++platform_device_register_fail:
+ 	platform_driver_unregister(&fserial_driver);
+-	return retval;
+-
++platform_driver_register_fail:
++	tty_unregister_driver(fs_tty_driver);
++tty_register_driver_fail:
++	put_tty_driver(fs_tty_driver);
++alloc_tty_driver_fail:
++	printk(KERN_ERR "fs_module_init failed\n");
++	return;
+ }
+ 
+ /*
+-* fs_module_exit
++* fs_exit
+ *
+ * Unregister as a tty driver.
+ */
+-static void __exit fs_module_exit(void)
++void fs_exit(void)
+ {
+-	tty_unregister_driver(fs_tty_driver);
+-	put_tty_driver(fs_tty_driver);
++	if (cleanup) {
++		platform_device_unregister (&fserial_device);
++		platform_driver_unregister(&fserial_driver);
++		tty_unregister_driver(fs_tty_driver);
++		put_tty_driver(fs_tty_driver);
++	}
+ }
+ 
+ /* TTY Driver */
+@@ -1116,7 +1116,7 @@ requeue:
+  * Called on module load.  Allocates and initializes the device
+  * structure and a control request.
+  */
+-static void fs_bind(struct usb_endpoint **ept, void *_ctxt)
++static int fs_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 
+ 	struct userial_context *ctxt = _ctxt;
+@@ -1131,9 +1131,7 @@ static void fs_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	INIT_LIST_HEAD(&ctxt->dev_write_list);
+ 	INIT_LIST_HEAD(&ctxt->dev_read_list);
+ 	if (fs_alloc_ports(ctxt, GFP_KERNEL) != 0) {
+-		printk(KERN_ERR "fs_bind: cannot allocate ports\n");
+-		fs_unbind(ctxt);
+-		goto fail;
++		goto fs_alloc_ports_fail;
+ 	}
+ 
+ 	ep = ctxt->dev_out_ep;
+@@ -1143,8 +1141,7 @@ static void fs_bind(struct usb_endpoint **ept, void *_ctxt)
+ 			req->context = ctxt;
+ 			list_add_tail(&req->list, &ctxt->dev_read_list);
+ 		} else {
+-			printk(KERN_ERR "fs_bind: cannot allocate read requests\n");
+-			goto fail;
++			goto dev_read_list_fail;
+ 		}
+ 	}
+ 
+@@ -1156,8 +1153,7 @@ static void fs_bind(struct usb_endpoint **ept, void *_ctxt)
+ 			req->context = ctxt;
+ 			list_add_tail(&req->list, &ctxt->dev_write_list);
+ 		} else {
+-			printk(KERN_ERR "fs_bind: cannot allocate write requests\n");
+-			goto fail;
++			goto dev_write_list_fail;
+ 		}
+ 	}
+ 
+@@ -1166,22 +1162,35 @@ static void fs_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	strcpy(fserial_dev.bus_id, "interface");
+ 
+ 	ret = device_register(&fserial_dev);
+-	if (ret != 0) {
+-		printk(KERN_WARNING "fserial_dev failed to register device: %d\n", ret);
+-		goto fail;
+-	}
++	if (ret != 0)
++		goto device_register_fail;
+ 	ret = device_create_file(&fserial_dev, &dev_attr_fserial_enable);
+-	if (ret != 0) {
+-		printk(KERN_WARNING "fserial_dev device_create_file failed: %d\n", ret);
+-		device_unregister(&fserial_dev);
+-		goto fail;
+-	}
++	if (ret != 0)
++		goto device_create_file_fail;
+ 	ctxt->registered = 1;
++	return 0;
+ 
+-	return;
+-
+-fail:
+-	printk(KERN_ERR "fs_bind() could not allocate requests\n");
++device_create_file_fail:
++	device_unregister(&fserial_dev);
++device_register_fail:
++dev_write_list_fail:
++	while(!list_empty(&ctxt->dev_write_list)) {
++		req = list_first_entry(&ctxt->dev_write_list,
++			struct usb_request, list);
++		list_del(&req->list);
++		usb_ept_free_req(ctxt->dev_in_ep, req);
++	}
++dev_read_list_fail:
++	while(!list_empty(&ctxt->dev_read_list)) {
++		req = list_first_entry(&ctxt->dev_read_list,
++			struct usb_request, list);
++		list_del(&req->list);
++		usb_ept_free_req(ctxt->dev_out_ep, req);
++	}
++	fs_free_ports(ctxt);
++fs_alloc_ports_fail:
++	printk(KERN_ERR "fs_bind() failed\n");
++	return -1;
+ }
+ 
+ /*
+@@ -1192,23 +1201,30 @@ fail:
+  */
+ static void fs_unbind(void *_ctxt)
+ {
+-	
+ 	struct userial_context *ctxt = _ctxt;
+-	/* read/write requests already freed, only control request remains */
+-	if (ctxt != NULL){
+-
+-		fs_free_ports(ctxt);
+-	/*	if (dev->dev_in_ep)
+-			usb_ep_disable(dev->dev_in_ep);
+-		if (dev->dev_out_ep)
+-			usb_ep_disable(dev->dev_out_ep);
+-	*/
++	struct usb_request *req;
++
+ 	if (ctxt->registered)	{
+ 		device_remove_file(&fserial_dev, &dev_attr_fserial_enable);
+ 		device_unregister(&fserial_dev);
+ 		ctxt->registered = 0;
+-		}
+ 	}
++
++	while(!list_empty(&ctxt->dev_write_list)) {
++		req = list_first_entry(&ctxt->dev_write_list,
++			struct usb_request, list);
++		list_del(&req->list);
++		usb_ept_free_req(ctxt->dev_in_ep, req);
++	}
++
++	while(!list_empty(&ctxt->dev_read_list)) {
++		req = list_first_entry(&ctxt->dev_read_list,
++			struct usb_request, list);
++		list_del(&req->list);
++		usb_ept_free_req(ctxt->dev_out_ep, req);
++	}
++
++	fs_free_ports(ctxt);
+ }
+ 
+ 
+@@ -1441,7 +1457,7 @@ static int fs_alloc_ports(struct userial_context *ctxt, gfp_t kmalloc_flags)
+ 
+ 	for (i=0; i<FS_NUM_PORTS; i++) {
+ 		if ((port=kzalloc(sizeof(struct fs_port), kmalloc_flags)) == NULL)
+-			return -ENOMEM;
++			goto alloc_port_fail;
+ 
+ 		port->port_dev = ctxt;
+ 		port->port_num = i;
+@@ -1456,6 +1472,13 @@ static int fs_alloc_ports(struct userial_context *ctxt, gfp_t kmalloc_flags)
+ 	}
+ 
+ 	return 0;
++
++alloc_port_fail:
++	for (i=0; i<FS_NUM_PORTS; i++) {
++		if (ctxt->dev_port[i] != NULL)
++			kfree(ctxt->dev_port[i]);
++	}
++	return -ENOMEM;
+ }
+ 
+ /*
+diff --git a/drivers/usb/function/fsync.c b/drivers/usb/function/fsync.c
+index cf5079e..5a52a28 100644
+--- a/drivers/usb/function/fsync.c
++++ b/drivers/usb/function/fsync.c
+@@ -61,7 +61,7 @@
+ static char fsync_status_tmp[32] = { 0 };
+ #endif
+ struct device fsync_dev;
+-static void fsync_bind(struct usb_endpoint **ept, void *_ctxt);
++static int fsync_bind(struct usb_endpoint **ept, void *_ctxt);
+ static void fsync_unbind(void *_ctxt);
+ static void fsync_configure(int configured, void *_ctxt);
+ 
+@@ -95,6 +95,7 @@ struct fsync_context
+ };
+ 
+ static struct fsync_context _context;
++static int cleanup;
+ 
+ static struct usb_function usb_func_fsync = {
+ 	.bind = fsync_bind,
+@@ -502,30 +503,29 @@ static void fsync_unbind(void *_ctxt)
+ 	struct fsync_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+ 
+-	printk(KERN_INFO "%s()\n", __func__);
+-
++	if (ctxt->read_req) {
++		usb_ept_free_req(ctxt->out, ctxt->read_req);
++	}
+ 	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
+ 		usb_ept_free_req(ctxt->out, req);
+ 	}
++	while ((req = req_get(ctxt, &ctxt->rx_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
+ 	while ((req = req_get(ctxt, &ctxt->tx_idle))) {
+ 		usb_ept_free_req(ctxt->in, req);
+ 	}
+-	if (ctxt->registered)	{
++
+ #ifdef USB_FSYNC_ADD_ATTR_FILE
+-		device_remove_file(&fsync_dev, &dev_attr_fsync_status);
++	device_remove_file(&fsync_dev, &dev_attr_fsync_status);
+ #endif
+-		device_unregister(&fsync_dev);
+-		ctxt->registered = 0;
+-	}
++	device_unregister(&fsync_dev);
+ 
+-	ctxt->online = 0;
+-	ctxt->error = 1;
+-
+-	/* readers may be blocked waiting for us to go online */
+-	wake_up(&ctxt->read_wq);
++	misc_deregister(&fsync_device);
++	misc_deregister(&fsync_enable_device);
+ }
+ 
+-static void fsync_bind(struct usb_endpoint **ept, void *_ctxt)
++static int fsync_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct fsync_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+@@ -537,7 +537,6 @@ static void fsync_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	ctxt->out = ept[0];
+ 	ctxt->in = ept[1];
+ 	ctxt->registered = 0;
+-	printk(KERN_INFO "%s() %p, %p\n", __func__, ctxt->out, ctxt->in);
+ 
+ #ifndef ALLOCATE_16K_BUFF
+ 	for (n = 0; n < RX_REQ_MAX; n++) {
+@@ -546,7 +545,7 @@ static void fsync_bind(struct usb_endpoint **ept, void *_ctxt)
+ #endif
+ 
+ 		req = usb_ept_alloc_req(ctxt->out, TXN_MAX);
+-		if (req == 0) goto fail;
++		if (req == 0) goto rx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = fsync_complete_out;
+ 		req_put(ctxt, &ctxt->rx_idle, req);
+@@ -559,23 +558,16 @@ static void fsync_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	{
+ #endif
+ 		req = usb_ept_alloc_req(ctxt->in, TXN_MAX);
+-		if (req == 0) goto fail;
++		if (req == 0) goto tx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = fsync_complete_in;
+ 		req_put(ctxt, &ctxt->tx_idle, req);
+ 	}
+ 
+-#ifndef ALLOCATE_16K_BUFF
+-	printk(KERN_INFO
+-	       "%s() allocated %d rx and %d tx requests\n",
+-	       __func__, RX_REQ_MAX, TX_REQ_MAX);
+-#else
+-	printk(KERN_INFO
+-		"%s(): allocated buffer: %d\n", __func__, TXN_MAX);
+-#endif
+-
+-	misc_register(&fsync_device);
+-	misc_register(&fsync_enable_device);
++	if (misc_register(&fsync_device))
++		goto misc_register_1_fail;
++	if (misc_register(&fsync_enable_device))
++		goto misc_register_2_fail;
+ 	
+ 	fsync_dev.release = fsync_dev_release;
+ 	fsync_dev.parent = &ctxt->pdev->dev;
+@@ -584,23 +576,47 @@ static void fsync_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	ret = device_register(&fsync_dev);
+ 	if (ret != 0) {
+ 		printk(KERN_WARNING "fsync_dev failed to register device: %d\n", ret);
+-		goto fail;
++		goto device_register_fail;
+ 	}
+ #ifdef USB_FSYNC_ADD_ATTR_FILE
+ 	ret = device_create_file(&fsync_dev, &dev_attr_fsync_status);
+ 	if (ret != 0) {
+ 		printk(KERN_WARNING "fsync_dev device_create_file failed: %d\n", ret);
+-		device_unregister(&fsync_dev);
+-		goto fail;
++		goto device_create_file_fail;
+ 	}
+ #endif
+ 	ctxt->registered = 1;
+ 
+-	return;
++#ifndef ALLOCATE_16K_BUFF
++	printk(KERN_INFO
++	       "%s() allocated %d rx and %d tx requests\n",
++	       __func__, RX_REQ_MAX, TX_REQ_MAX);
++#else
++	printk(KERN_INFO
++		"%s(): allocated buffer: %d\n", __func__, TXN_MAX);
++#endif
++	cleanup = 1;
++	return 0;
+ 
+-fail:
+-	printk(KERN_ERR "%s() could not allocate requests\n", __func__);
+-	fsync_unbind(ctxt);
++#ifdef USB_FSYNC_ADD_ATTR_FILE
++device_create_file_fail:
++	device_unregister(&fsync_dev);
++#endif
++device_register_fail:
++	misc_deregister(&fsync_enable_device);
++misc_register_2_fail:
++	misc_deregister(&fsync_device);
++misc_register_1_fail:
++tx_idle_fail:
++	while ((req = req_get(ctxt, &ctxt->tx_idle))) {
++		usb_ept_free_req(ctxt->in, req);
++	}
++rx_idle_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++	printk(KERN_ERR "%s() failed\n", __func__);
++	return -1;
+ }
+ 
+ static void fsync_configure(int configured, void *_ctxt)
+@@ -634,7 +650,7 @@ static void fsync_configure(int configured, void *_ctxt)
+ 	wake_up(&ctxt->read_wq);
+ }
+ 
+-static int __init fsync_init(void)
++void fsync_init(void)
+ {
+ 	struct fsync_context *ctxt = &_context;
+ 	int retval = 0;
+@@ -656,23 +672,28 @@ static int __init fsync_init(void)
+ 	
+ 	retval = platform_driver_register (&fsync_driver_reg);
+ 	if (retval < 0)
+-		return retval;
++		goto platform_driver_register_fail;
+ 	retval = platform_device_register (&fsync_device_reg);
+ 	if (retval < 0)
+-		goto err_register_device_1;
+-
++		goto platform_device_register_fail;
+ 	retval = usb_function_register(&usb_func_fsync);
+-	if (retval < 0)
+-		goto err_register_device_2;
+-
+-	return retval;
+-
+-err_register_device_2:
+-		platform_device_unregister(&fsync_device_reg);
+-err_register_device_1:
+-		platform_driver_unregister(&fsync_driver_reg);
+-		return retval;
++	if (retval)
++		goto usb_function_register_fail;
++	cleanup = 1;
++	return;
+ 
++usb_function_register_fail:
++	platform_device_unregister (&fsync_device_reg);
++platform_device_register_fail:
++	platform_driver_unregister(&fsync_driver_reg);
++platform_driver_register_fail:
++	return;
+ }
+ 
+-module_init(fsync_init);
++void fsync_exit(void)
++{
++	if (cleanup) {
++		platform_device_unregister (&fsync_device_reg);
++		platform_driver_unregister (&fsync_driver_reg);
++	}
++}
+diff --git a/drivers/usb/function/loopback.c b/drivers/usb/function/loopback.c
+index d7c93a3..24ff9c2 100644
+--- a/drivers/usb/function/loopback.c
++++ b/drivers/usb/function/loopback.c
+@@ -32,17 +32,40 @@ struct loopback_context
+ 
+ static struct loopback_context _context;
+ 
+-static void loopback_bind(struct usb_endpoint **ept, void *_ctxt)
++static int loopback_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct loopback_context *ctxt = _ctxt;
+ 
+ 	ctxt->out = ept[0];
+ 	ctxt->in = ept[1];
+ 
+-	printk(KERN_INFO "loopback_bind() %p, %p\n", ctxt->out, ctxt->in);
++	if ((ctxt->req_out = usb_ept_alloc_req(ctxt->out, 4096)) == NULL)
++		goto req_out_fail;
++	if ((ctxt->req_in = usb_ept_alloc_req(ctxt->in, 4096)) == NULL)
++		goto req_in_fail;
++	return 0;
++
++req_in_fail:
++	usb_ept_free_req(ctxt->out, ctxt->req_out);
++req_out_fail:
++	printk(KERN_ERR "%s() failed\n", __func__);
++	return -1;
++}
++
++static void loopback_unbind(void *_ctxt)
++{
++	struct loopback_context *ctxt = _ctxt;
+ 
+-	ctxt->req_out = usb_ept_alloc_req(ctxt->out, 4096);
+-	ctxt->req_in = usb_ept_alloc_req(ctxt->in, 4096);
++	if (ctxt->req_in) {
++		usb_ept_free_req(ctxt->in, ctxt->req_in);
++		ctxt->req_in = 0;
++	}
++	if (ctxt->req_out) {
++		usb_ept_free_req(ctxt->out, ctxt->req_out);
++		ctxt->req_out = 0;
++	}
++	ctxt->in = 0;
++	ctxt->out = 0;
+ }
+ 
+ static void loopback_queue_in(struct loopback_context *ctxt, void *data, unsigned len);
+@@ -104,6 +127,7 @@ static void loopback_configure(int configured, void *_ctxt)
+ 
+ static struct usb_function usb_func_loopback = {
+ 	.bind = loopback_bind,
++	.unbind = loopback_unbind,
+ 	.configure = loopback_configure,
+ 
+ 	.name = "loopback",
+@@ -119,10 +143,7 @@ static struct usb_function usb_func_loopback = {
+ 	.ifc_ept_type = { EPT_BULK_OUT, EPT_BULK_IN },
+ };
+ 
+-static int __init loopback_init(void)
++void loopback_init(void)
+ {
+-	printk(KERN_INFO "loopback_init()\n");
+-	return usb_function_register(&usb_func_loopback);
++       usb_function_register(&usb_func_loopback);
+ }
+-
+-module_init(loopback_init);
+diff --git a/drivers/usb/function/mass_storage.c b/drivers/usb/function/mass_storage.c
+index 4b77888..1609526 100644
+--- a/drivers/usb/function/mass_storage.c
++++ b/drivers/usb/function/mass_storage.c
+@@ -42,204 +42,12 @@
+  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-//#define DEBUG
+-//#define VERBOSE_DEBUG
+-//#define DUMP_MSGS
+-//#define DEBUG_SCSI_CMD
+-/* use mass_storage command(SC_RESERVE) to enable/disable adb daemon */
+-#define ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD
+-
+-#include <linux/blkdev.h>
+-#include <linux/completion.h>
+-#include <linux/dcache.h>
+-#include <linux/delay.h>
+-#include <linux/device.h>
+-#include <linux/fcntl.h>
+-#include <linux/file.h>
+-#include <linux/fs.h>
+-#include <linux/kref.h>
+-#include <linux/kthread.h>
+-#include <linux/limits.h>
+-#include <linux/rwsem.h>
+-#include <linux/slab.h>
+-#include <linux/spinlock.h>
+-#include <linux/string.h>
+-#include <linux/switch.h>
+-#include <linux/freezer.h>
+-#include <linux/utsname.h>
+-#include <linux/usb/ch9.h>
+-#include <linux/usb/mass_storage_function.h>
+-#include <linux/usb_usual.h>
+-#include <linux/platform_device.h>
+-#include <linux/wakelock.h>
+-#ifdef ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD
+-#include <linux/reboot.h>
+-#include <linux/syscalls.h>
+-#endif /* ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD */
+ 
++#include "mass_storage.h"
+ #include "usb_function.h"
+ 
+-/*-------------------------------------------------------------------------*/
+-
+-#define DRIVER_NAME		"usb_mass_storage"
+-#define MAX_LUNS		8
+-
+-#ifdef DEBUG
+-#define LDBG(lun, fmt, args...) \
+-	dev_dbg(&(lun)->dev , fmt , ## args)
+-#define MDBG(fmt,args...) \
+-	printk(KERN_DEBUG DRIVER_NAME ": " fmt , ## args)
+-#else
+-#define LDBG(lun, fmt, args...) \
+-	do { } while (0)
+-#define MDBG(fmt,args...) \
+-	do { } while (0)
+-#undef VERBOSE_DEBUG
+-#undef DUMP_MSGS
+-#endif /* DEBUG */
+-
+-#ifdef VERBOSE_DEBUG
+-#define VLDBG	LDBG
+-#else
+-#define VLDBG(lun, fmt, args...) \
+-	do { } while (0)
+-#endif /* VERBOSE_DEBUG */
+-
+-#define LERROR(lun, fmt, args...) \
+-	dev_err(&(lun)->dev , fmt , ## args)
+-#define LWARN(lun, fmt, args...) \
+-	dev_warn(&(lun)->dev , fmt , ## args)
+-#define LINFO(lun, fmt, args...) \
+-	dev_info(&(lun)->dev , fmt , ## args)
+-
+-#define MINFO(fmt,args...) \
+-	printk(KERN_INFO DRIVER_NAME ": " fmt , ## args)
+-
+-#define DBG(d, fmt, args...) \
+-	dev_dbg(&(d)->pdev->dev , fmt , ## args)
+-#define VDBG(d, fmt, args...) \
+-	dev_vdbg(&(d)->pdev->dev , fmt , ## args)
+-#define ERROR(d, fmt, args...) \
+-	dev_err(&(d)->pdev->dev , fmt , ## args)
+-#define MS_WARN(d, fmt, args...) \
+-	dev_warn(&(d)->pdev->dev , fmt , ## args)
+-#define INFO(d, fmt, args...) \
+-	dev_info(&(d)->pdev->dev , fmt , ## args)
+-
+-#ifdef DEBUG_SCSI_CMD
+-#define SCSI_CMD_DBG(fmt,args...) \
+-	printk(KERN_DEBUG "SCSI_CMD: " fmt , ## args)
+-#else
+-#define SCSI_CMD_DBG(fmt,args...) \
+-	do { } while (0)
+-#endif
+-
+-/*-------------------------------------------------------------------------*/
+-
+-/* Bulk-only data structures */
+-
+-/* Command Block Wrapper */
+-struct bulk_cb_wrap {
+-	__le32	Signature;		/* Contains 'USBC' */
+-	u32	Tag;			/* Unique per command id */
+-	__le32	DataTransferLength;	/* Size of the data */
+-	u8	Flags;			/* Direction in bit 7 */
+-	u8	Lun;			/* LUN (normally 0) */
+-	u8	Length;			/* Of the CDB, <= MAX_COMMAND_SIZE */
+-	u8	CDB[16];		/* Command Data Block */
+-};
+-
+-#define USB_BULK_CB_WRAP_LEN	31
+-#define USB_BULK_CB_SIG		0x43425355	/* Spells out USBC */
+-#define USB_BULK_IN_FLAG	0x80
+-
+-/* Command Status Wrapper */
+-struct bulk_cs_wrap {
+-	__le32	Signature;		/* Should = 'USBS' */
+-	u32	Tag;			/* Same as original command */
+-	__le32	Residue;		/* Amount not transferred */
+-	u8	Status;			/* See below */
+-};
+-
+-#define USB_BULK_CS_WRAP_LEN	13
+-#define USB_BULK_CS_SIG		0x53425355	/* Spells out 'USBS' */
+-#define USB_STATUS_PASS		0
+-#define USB_STATUS_FAIL		1
+-#define USB_STATUS_PHASE_ERROR	2
+-
+-/* Bulk-only class specific requests */
+-#define USB_BULK_RESET_REQUEST		0xff
+-#define USB_BULK_GET_MAX_LUN_REQUEST	0xfe
+-
+-/* Length of a SCSI Command Data Block */
+-#define MAX_COMMAND_SIZE	16
+-
+-/* SCSI commands that we recognize */
+-#define SC_FORMAT_UNIT			0x04
+-#define SC_INQUIRY			0x12
+-#define SC_MODE_SELECT_6		0x15
+-#define SC_MODE_SELECT_10		0x55
+-#define SC_MODE_SENSE_6			0x1a
+-#define SC_MODE_SENSE_10		0x5a
+-#define SC_PREVENT_ALLOW_MEDIUM_REMOVAL	0x1e
+-#define SC_READ_6			0x08
+-#define SC_READ_10			0x28
+-#define SC_READ_12			0xa8
+-#define SC_READ_CAPACITY		0x25
+-#define SC_READ_FORMAT_CAPACITIES	0x23
+-#define SC_RELEASE			0x17
+-#define SC_REQUEST_SENSE		0x03
+-#define SC_RESERVE			0x16
+-#define SC_SEND_DIAGNOSTIC		0x1d
+-#define SC_START_STOP_UNIT		0x1b
+-#define SC_SYNCHRONIZE_CACHE		0x35
+-#define SC_TEST_UNIT_READY		0x00
+-#define SC_VERIFY			0x2f
+-#define SC_WRITE_6			0x0a
+-#define SC_WRITE_10			0x2a
+-#define SC_WRITE_12			0xaa
+-
+-/* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
+-#define SS_NO_SENSE				0
+-#define SS_COMMUNICATION_FAILURE		0x040800
+-#define SS_INVALID_COMMAND			0x052000
+-#define SS_INVALID_FIELD_IN_CDB			0x052400
+-#define SS_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE	0x052100
+-#define SS_LOGICAL_UNIT_NOT_SUPPORTED		0x052500
+-#define SS_MEDIUM_NOT_PRESENT			0x023a00
+-#define SS_MEDIUM_REMOVAL_PREVENTED		0x055302
+-#define SS_NOT_READY_TO_READY_TRANSITION	0x062800
+-#define SS_RESET_OCCURRED			0x062900
+-#define SS_SAVING_PARAMETERS_NOT_SUPPORTED	0x053900
+-#define SS_UNRECOVERED_READ_ERROR		0x031100
+-#define SS_WRITE_ERROR				0x030c02
+-#define SS_WRITE_PROTECTED			0x072700
+-
+-#define SK(x)		((u8) ((x) >> 16))	/* Sense Key byte, etc. */
+-#define ASC(x)		((u8) ((x) >> 8))
+-#define ASCQ(x)		((u8) (x))
+-
+-
+-/*-------------------------------------------------------------------------*/
+-
+-struct lun {
+-	struct file	*filp;
+-	loff_t		file_length;
+-	loff_t		num_sectors;
+-
+-	unsigned int	ro : 1;
+-	unsigned int	prevent_medium_removal : 1;
+-	unsigned int	registered : 1;
+-	unsigned int	info_valid : 1;
+-
+-	u32		sense_data;
+-	u32		sense_data_info;
+-	u32		unit_attention_data;
+-
+-	struct device	dev;
+-};
+-
+-#define backing_file_is_open(curlun)	((curlun)->filp != NULL)
++extern struct fsg_dev			*the_fsg;
++static struct usb_function		usb_func_fsg;
+ 
+ 
+ static struct lun *dev_to_lun(struct device *dev)
+@@ -247,117 +55,6 @@ static struct lun *dev_to_lun(struct device *dev)
+ 	return container_of(dev, struct lun, dev);
+ }
+ 
+-/* Big enough to hold our biggest descriptor */
+-#define EP0_BUFSIZE	256
+-#define DELAYED_STATUS	(EP0_BUFSIZE + 999)	/* An impossibly large value */
+-
+-/* Number of buffers we will use.  2 is enough for double-buffering */
+-#define NUM_BUFFERS	2
+-
+-enum fsg_buffer_state {
+-	BUF_STATE_EMPTY = 0,
+-	BUF_STATE_FULL,
+-	BUF_STATE_BUSY
+-};
+-
+-struct fsg_buffhd {
+-	void				*buf;
+-	enum fsg_buffer_state		state;
+-	struct fsg_buffhd		*next;
+-
+-	/* The NetChip 2280 is faster, and handles some protocol faults
+-	 * better, if we don't submit any short bulk-out read requests.
+-	 * So we will record the intended request length here. */
+-	unsigned int			bulk_out_intended_length;
+-
+-	struct usb_request		*inreq;
+-	int				inreq_busy;
+-	struct usb_request		*outreq;
+-	int				outreq_busy;
+-};
+-
+-enum fsg_state {
+-	/* This one isn't used anywhere */
+-	FSG_STATE_COMMAND_PHASE = -10,
+-
+-	FSG_STATE_DATA_PHASE,
+-	FSG_STATE_STATUS_PHASE,
+-
+-	FSG_STATE_IDLE = 0,
+-	FSG_STATE_ABORT_BULK_OUT,
+-	FSG_STATE_RESET,
+-	FSG_STATE_CONFIG_CHANGE,
+-	FSG_STATE_EXIT,
+-	FSG_STATE_TERMINATED
+-};
+-
+-enum data_direction {
+-	DATA_DIR_UNKNOWN = 0,
+-	DATA_DIR_FROM_HOST,
+-	DATA_DIR_TO_HOST,
+-	DATA_DIR_NONE
+-};
+-
+-struct fsg_dev {
+-	/* lock protects: state and all the req_busy's */
+-	spinlock_t		lock;
+-
+-	/* filesem protects: backing files in use */
+-	struct rw_semaphore	filesem;
+-
+-	/* reference counting: wait until all LUNs are released */
+-	struct kref		ref;
+-
+-	unsigned int		bulk_out_maxpacket;
+-	enum fsg_state		state;		/* For exception handling */
+-
+-	u8			config, new_config;
+-
+-	unsigned int		running : 1;
+-	unsigned int		phase_error : 1;
+-	unsigned int		short_packet_received : 1;
+-	unsigned int		bad_lun_okay : 1;
+-
+-	unsigned long		atomic_bitflags;
+-#define REGISTERED		0
+-#define CLEAR_BULK_HALTS	1
+-#define SUSPENDED		2
+-
+-	struct usb_endpoint		*bulk_in;
+-	struct usb_endpoint		*bulk_out;
+-
+-	struct fsg_buffhd	*next_buffhd_to_fill;
+-	struct fsg_buffhd	*next_buffhd_to_drain;
+-	struct fsg_buffhd	buffhds[NUM_BUFFERS];
+-
+-	int			thread_wakeup_needed;
+-	struct completion	thread_notifier;
+-	struct task_struct	*thread_task;
+-
+-	int			cmnd_size;
+-	u8			cmnd[MAX_COMMAND_SIZE];
+-	enum data_direction	data_dir;
+-	u32			data_size;
+-	u32			data_size_from_cmnd;
+-	u32			tag;
+-	unsigned int		lun;
+-	u32			residue;
+-	u32			usb_amount_left;
+-
+-	unsigned int		nluns;
+-	struct lun		*luns;
+-	struct lun		*curlun;
+-
+-	u32				buf_size;
+-	const char		*vendor;
+-	const char		*product;
+-	int				release;
+-
+-	struct platform_device *pdev;
+-	struct switch_dev sdev;
+-	struct wake_lock wake_lock;
+-};
+-
+ static int exception_in_progress(struct fsg_dev *fsg)
+ {
+ 	return (fsg->state > FSG_STATE_IDLE);
+@@ -376,8 +73,6 @@ static void set_bulk_out_req_length(struct fsg_dev *fsg,
+ 	bh->outreq->length = length;
+ }
+ 
+-static struct fsg_dev			*the_fsg;
+-
+ static void	close_backing_file(struct fsg_dev *fsg, struct lun *curlun);
+ static void	close_all_backing_files(struct fsg_dev *fsg);
+ 
+@@ -2523,22 +2218,22 @@ static ssize_t store_file(struct device *dev, struct device_attribute *attr,
+ 	if (backing_file_is_open(curlun)) {
+ 		close_backing_file(fsg, curlun);
+ 		curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
++		module_put(THIS_MODULE);
+ 	}
+ 
+ 	/* Load new medium */
+ 	if (count > 0 && buf[0]) {
+ 		rc = open_backing_file(fsg, curlun, buf);
+-		if (rc == 0)
++		if (rc == 0) {
+ 			curlun->unit_attention_data =
+ 					SS_NOT_READY_TO_READY_TRANSITION;
++			try_module_get(THIS_MODULE);
++		}
+ 	}
+ 	up_write(&fsg->filesem);
+ 	return (rc < 0 ? rc : count);
+ }
+ 
+-
+-static DEVICE_ATTR(file, 0444, show_file, store_file);
+-
+ /*-------------------------------------------------------------------------*/
+ 
+ static ssize_t store_mass_storage_enable(struct device *dev, struct device_attribute *attr,
+@@ -2560,41 +2255,15 @@ static ssize_t show_mass_storage_enable(struct device *dev, struct device_attrib
+ 	return length;
+ }
+ 
+-static DEVICE_ATTR(mass_storage_enable, 0644, show_mass_storage_enable, store_mass_storage_enable);
+-
+-static void fsg_release(struct kref *ref)
+-{
+-	struct fsg_dev	*fsg = container_of(ref, struct fsg_dev, ref);
+-
+-	kfree(fsg->luns);
+-	kfree(fsg);
+-}
+-
+-static void lun_release(struct device *dev)
+-{
+-	struct fsg_dev	*fsg = dev_get_drvdata(dev);
+-
+-	kref_put(&fsg->ref, fsg_release);
+-}
+ 
+-static void /* __init_or_exit */ fsg_unbind(void *_ctxt)
++static void fsg_unbind(void *_ctxt)
+ {
+ 	struct fsg_dev		*fsg = _ctxt;
+ 	int			i;
+-	struct lun		*curlun;
+ 
+-	DBG(fsg, "unbind\n");
+ 	clear_bit(REGISTERED, &fsg->atomic_bitflags);
+ 
+-	/* Unregister the sysfs attribute files and the LUNs */
+-	for (i = 0; i < fsg->nluns; ++i) {
+-		curlun = &fsg->luns[i];
+-		if (curlun->registered) {
+-			device_remove_file(&curlun->dev, &dev_attr_file);
+-			device_unregister(&curlun->dev);
+-			curlun->registered = 0;
+-		}
+-	}
++	mass_storage_stub_set_handlers(NULL, NULL, NULL, NULL, NULL);
+ 
+ 	/* If the thread isn't already dead, tell it to exit now */
+ 	if (fsg->state != FSG_STATE_TERMINATED) {
+@@ -2610,7 +2279,7 @@ static void /* __init_or_exit */ fsg_unbind(void *_ctxt)
+ 		kfree(fsg->buffhds[i].buf);
+ }
+ 
+-static void fsg_bind(struct usb_endpoint **ept, void *_ctxt)
++static int fsg_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct fsg_dev		*fsg = the_fsg;
+ 	int			rc;
+@@ -2618,54 +2287,10 @@ static void fsg_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	struct lun		*curlun;
+ 	char			*pathbuf, *p;
+ 
++	usb_func_fsg.context = the_fsg;
+ 	fsg->bulk_out = ept[0];
+ 	fsg->bulk_in = ept[1];
+ 
+-	dev_attr_file.attr.mode = 0644;
+-
+-	/* Find out how many LUNs there should be */
+-	i = fsg->nluns;
+-	if (i == 0)
+-		i = 1;
+-	if (i > MAX_LUNS) {
+-		ERROR(fsg, "invalid number of LUNs: %d\n", i);
+-		rc = -EINVAL;
+-		goto out;
+-	}
+-
+-	/* Create the LUNs, open their backing files, and register the
+-	 * LUN devices in sysfs. */
+-	fsg->luns = kzalloc(i * sizeof(struct lun), GFP_KERNEL);
+-	if (!fsg->luns) {
+-		rc = -ENOMEM;
+-		goto out;
+-	}
+-	fsg->nluns = i;
+-
+-	for (i = 0; i < fsg->nluns; ++i) {
+-		curlun = &fsg->luns[i];
+-		curlun->ro = 0;
+-		curlun->dev.release = lun_release;
+-		curlun->dev.parent = &fsg->pdev->dev;
+-		dev_set_drvdata(&curlun->dev, fsg);
+-		snprintf(curlun->dev.bus_id, BUS_ID_SIZE,
+-				"lun%d", i);
+-
+-		rc = device_register(&curlun->dev);
+-		if (rc != 0) {
+-			INFO(fsg, "failed to register LUN%d: %d\n", i, rc);
+-			goto out;
+-		}
+-		rc = device_create_file(&curlun->dev, &dev_attr_file);
+-		if (rc != 0) {
+-			ERROR(fsg, "device_create_file failed: %d\n", rc);
+-			device_unregister(&curlun->dev);
+-			goto out;
+-		}
+-		curlun->registered = 1;
+-		kref_get(&fsg->ref);
+-	}
+-
+ 	rc = -ENOMEM;
+ 
+ 	/* Allocate the data buffers */
+@@ -2677,7 +2302,7 @@ static void fsg_bind(struct usb_endpoint **ept, void *_ctxt)
+ 		 * interrupt-in) endpoint. */
+ 		bh->buf = kmalloc(fsg->buf_size, GFP_KERNEL);
+ 		if (!bh->buf)
+-			goto out;
++			goto buf_alloc_fail;
+ 		bh->next = bh + 1;
+ 	}
+ 	fsg->buffhds[NUM_BUFFERS - 1].next = &fsg->buffhds[0];
+@@ -2687,7 +2312,7 @@ static void fsg_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	if (IS_ERR(fsg->thread_task)) {
+ 		rc = PTR_ERR(fsg->thread_task);
+ 		ERROR(fsg, "kthread_create failed: %d\n", rc);
+-		goto out;
++		goto kthread_create_fail;
+ 	}
+ 
+ 	INFO(fsg, "Number of LUNs=%d\n", fsg->nluns);
+@@ -2708,17 +2333,21 @@ static void fsg_bind(struct usb_endpoint **ept, void *_ctxt)
+ 		}
+ 	}
+ 	kfree(pathbuf);
+-
+ 	set_bit(REGISTERED, &fsg->atomic_bitflags);
+ 
+ 	/* Tell the thread to start working */
+ 	wake_up_process(fsg->thread_task);
+-	return;
++	mass_storage_stub_set_handlers(THIS_MODULE, show_file, store_file, store_mass_storage_enable, show_mass_storage_enable);
++	return 0;
+ 
+-out:
+-	fsg->state = FSG_STATE_TERMINATED;	/* The thread is dead */
+-	fsg_unbind(fsg);
+-	close_all_backing_files(fsg);
++
++kthread_create_fail:
++buf_alloc_fail:
++	for (i = 0; i < NUM_BUFFERS; ++i)
++		if (fsg->buffhds[i].buf)
++			kfree(fsg->buffhds[i].buf);
++	printk(KERN_ERR "%s() failed\n", __func__);
++	return -1;
+ }
+ 
+ static void fsg_configure(int configured, void *_ctxt)
+@@ -2730,7 +2359,7 @@ static void fsg_configure(int configured, void *_ctxt)
+ 
+ /*-------------------------------------------------------------------------*/
+ 
+-static struct usb_function		fsg_function = {
++static struct usb_function		usb_func_fsg = {
+ 	.bind		= fsg_bind,
+ 	.unbind		= fsg_unbind,
+ 	.configure  = fsg_configure,
+@@ -2753,87 +2382,12 @@ static struct usb_function		fsg_function = {
+ 	.ifc_index = STRING_UMS,
+ };
+ 
+-
+-static int __init fsg_alloc(void)
+-{
+-	struct fsg_dev		*fsg;
+-
+-	fsg = kzalloc(sizeof *fsg, GFP_KERNEL);
+-	if (!fsg)
+-		return -ENOMEM;
+-	spin_lock_init(&fsg->lock);
+-	init_rwsem(&fsg->filesem);
+-	kref_init(&fsg->ref);
+-	init_completion(&fsg->thread_notifier);
+-
+-	the_fsg = fsg;
+-	return 0;
+-}
+-
+-static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
+-{
+-	return sprintf(buf, "%s\n", DRIVER_NAME);
+-}
+-
+-static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
++void fsg_init(void)
+ {
+-	struct fsg_dev	*fsg = container_of(sdev, struct fsg_dev, sdev);
+-	return sprintf(buf, "%s\n", (fsg->config ? "online" : "offline"));
++	usb_function_register(&usb_func_fsg);
+ }
+ 
+-static int fsg_probe(struct platform_device *pdev)
++void fsg_exit(void)
+ {
+-	struct usb_mass_storage_platform_data *pdata = pdev->dev.platform_data;
+-	int		rc;
+-
+-	rc = fsg_alloc();
+-	if (rc != 0)
+-		return rc;
+-
+-	the_fsg->pdev = pdev;
+-	the_fsg->sdev.name = DRIVER_NAME;
+-	the_fsg->nluns = pdata->nluns;
+-	the_fsg->buf_size = pdata->buf_size;
+-	the_fsg->vendor = pdata->vendor;
+-	the_fsg->product = pdata->product;
+-	the_fsg->release = pdata->release;
+-	the_fsg->sdev.print_name = print_switch_name;
+-	the_fsg->sdev.print_state = print_switch_state;
+-	rc = switch_dev_register(&the_fsg->sdev);
+-	if (rc < 0)
+-		goto err_switch_dev_register;
+-
+-	rc = device_create_file(&the_fsg->pdev->dev,
+-		&dev_attr_mass_storage_enable);
+-	if (rc != 0) {
+-		printk(KERN_WARNING "dev_attr_mass_storage_enable failed\n");
+-		goto err_switch_dev_register;
+-	}
+-
+-	wake_lock_init(&the_fsg->wake_lock, WAKE_LOCK_SUSPEND,
+-		       "usb_mass_storage");
+-	fsg_function.context = the_fsg;
+-	rc = usb_function_register(&fsg_function);
+-	if (rc != 0)
+-		goto err_usb_function_register;
+-
+-	return 0;
+-
+-err_usb_function_register:
+-	switch_dev_unregister(&the_fsg->sdev);
+-err_switch_dev_register:
+-	kref_put(&the_fsg->ref, fsg_release);
+-
+-	return rc;
+-}
+-
+-static struct platform_driver fsg_driver = {
+-	.probe = fsg_probe,
+-	.driver = { .name = DRIVER_NAME, },
+-};
+-
+-static int __init fsg_init(void)
+-{
+-	return platform_driver_register(&fsg_driver);
++	
+ }
+-module_init(fsg_init);
+diff --git a/drivers/usb/function/mass_storage.h b/drivers/usb/function/mass_storage.h
+new file mode 100644
+index 0000000..eff44ff
+--- /dev/null
++++ b/drivers/usb/function/mass_storage.h
+@@ -0,0 +1,321 @@
++#ifndef USB_FUNCTION_MASS_STORAGE_H
++#define USB_FUNCTION_MASS_STORAGE_H 1
++
++//#define DEBUG
++//#define VERBOSE_DEBUG
++//#define DUMP_MSGS
++//#define DEBUG_SCSI_CMD
++/* use mass_storage command(SC_RESERVE) to enable/disable adb daemon */
++#define ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD
++
++#include <linux/blkdev.h>
++#include <linux/completion.h>
++#include <linux/dcache.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/fcntl.h>
++#include <linux/file.h>
++#include <linux/fs.h>
++#include <linux/kref.h>
++#include <linux/kthread.h>
++#include <linux/limits.h>
++#include <linux/rwsem.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/switch.h>
++#include <linux/freezer.h>
++#include <linux/utsname.h>
++#include <linux/usb/ch9.h>
++#include <linux/usb/mass_storage_function.h>
++#include <linux/usb_usual.h>
++#include <linux/platform_device.h>
++#include <linux/wakelock.h>
++#ifdef ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD
++#include <linux/reboot.h>
++#include <linux/syscalls.h>
++#endif /* ENABLE_SCSI_CMD_RESERVE_6_TO_SPEC_CMD */
++
++
++/*-------------------------------------------------------------------------*/
++
++#define DRIVER_NAME		"usb_mass_storage"
++#define MAX_LUNS		8
++
++#ifdef DEBUG
++#define LDBG(lun, fmt, args...) \
++	dev_dbg(&(lun)->dev , fmt , ## args)
++#define MDBG(fmt,args...) \
++	printk(KERN_DEBUG DRIVER_NAME ": " fmt , ## args)
++#else
++#define LDBG(lun, fmt, args...) \
++	do { } while (0)
++#define MDBG(fmt,args...) \
++	do { } while (0)
++#undef VERBOSE_DEBUG
++#undef DUMP_MSGS
++#endif /* DEBUG */
++
++#ifdef VERBOSE_DEBUG
++#define VLDBG	LDBG
++#else
++#define VLDBG(lun, fmt, args...) \
++	do { } while (0)
++#endif /* VERBOSE_DEBUG */
++
++#define LERROR(lun, fmt, args...) \
++	dev_err(&(lun)->dev , fmt , ## args)
++#define LWARN(lun, fmt, args...) \
++	dev_warn(&(lun)->dev , fmt , ## args)
++#define LINFO(lun, fmt, args...) \
++	dev_info(&(lun)->dev , fmt , ## args)
++
++#define MINFO(fmt,args...) \
++	printk(KERN_INFO DRIVER_NAME ": " fmt , ## args)
++
++#define DBG(d, fmt, args...) \
++	dev_dbg(&(d)->pdev->dev , fmt , ## args)
++#define VDBG(d, fmt, args...) \
++	dev_vdbg(&(d)->pdev->dev , fmt , ## args)
++#define ERROR(d, fmt, args...) \
++	dev_err(&(d)->pdev->dev , fmt , ## args)
++#define MS_WARN(d, fmt, args...) \
++	dev_warn(&(d)->pdev->dev , fmt , ## args)
++#define INFO(d, fmt, args...) \
++	dev_info(&(d)->pdev->dev , fmt , ## args)
++
++#ifdef DEBUG_SCSI_CMD
++#define SCSI_CMD_DBG(fmt,args...) \
++	printk(KERN_DEBUG "SCSI_CMD: " fmt , ## args)
++#else
++#define SCSI_CMD_DBG(fmt,args...) \
++	do { } while (0)
++#endif
++
++/*-------------------------------------------------------------------------*/
++
++/* Bulk-only data structures */
++
++/* Command Block Wrapper */
++struct bulk_cb_wrap {
++	__le32	Signature;		/* Contains 'USBC' */
++	u32	Tag;			/* Unique per command id */
++	__le32	DataTransferLength;	/* Size of the data */
++	u8	Flags;			/* Direction in bit 7 */
++	u8	Lun;			/* LUN (normally 0) */
++	u8	Length;			/* Of the CDB, <= MAX_COMMAND_SIZE */
++	u8	CDB[16];		/* Command Data Block */
++};
++
++#define USB_BULK_CB_WRAP_LEN	31
++#define USB_BULK_CB_SIG		0x43425355	/* Spells out USBC */
++#define USB_BULK_IN_FLAG	0x80
++
++/* Command Status Wrapper */
++struct bulk_cs_wrap {
++	__le32	Signature;		/* Should = 'USBS' */
++	u32	Tag;			/* Same as original command */
++	__le32	Residue;		/* Amount not transferred */
++	u8	Status;			/* See below */
++};
++
++#define USB_BULK_CS_WRAP_LEN	13
++#define USB_BULK_CS_SIG		0x53425355	/* Spells out 'USBS' */
++#define USB_STATUS_PASS		0
++#define USB_STATUS_FAIL		1
++#define USB_STATUS_PHASE_ERROR	2
++
++/* Bulk-only class specific requests */
++#define USB_BULK_RESET_REQUEST		0xff
++#define USB_BULK_GET_MAX_LUN_REQUEST	0xfe
++
++/* Length of a SCSI Command Data Block */
++#define MAX_COMMAND_SIZE	16
++
++/* SCSI commands that we recognize */
++#define SC_FORMAT_UNIT			0x04
++#define SC_INQUIRY			0x12
++#define SC_MODE_SELECT_6		0x15
++#define SC_MODE_SELECT_10		0x55
++#define SC_MODE_SENSE_6			0x1a
++#define SC_MODE_SENSE_10		0x5a
++#define SC_PREVENT_ALLOW_MEDIUM_REMOVAL	0x1e
++#define SC_READ_6			0x08
++#define SC_READ_10			0x28
++#define SC_READ_12			0xa8
++#define SC_READ_CAPACITY		0x25
++#define SC_READ_FORMAT_CAPACITIES	0x23
++#define SC_RELEASE			0x17
++#define SC_REQUEST_SENSE		0x03
++#define SC_RESERVE			0x16
++#define SC_SEND_DIAGNOSTIC		0x1d
++#define SC_START_STOP_UNIT		0x1b
++#define SC_SYNCHRONIZE_CACHE		0x35
++#define SC_TEST_UNIT_READY		0x00
++#define SC_VERIFY			0x2f
++#define SC_WRITE_6			0x0a
++#define SC_WRITE_10			0x2a
++#define SC_WRITE_12			0xaa
++
++/* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
++#define SS_NO_SENSE				0
++#define SS_COMMUNICATION_FAILURE		0x040800
++#define SS_INVALID_COMMAND			0x052000
++#define SS_INVALID_FIELD_IN_CDB			0x052400
++#define SS_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE	0x052100
++#define SS_LOGICAL_UNIT_NOT_SUPPORTED		0x052500
++#define SS_MEDIUM_NOT_PRESENT			0x023a00
++#define SS_MEDIUM_REMOVAL_PREVENTED		0x055302
++#define SS_NOT_READY_TO_READY_TRANSITION	0x062800
++#define SS_RESET_OCCURRED			0x062900
++#define SS_SAVING_PARAMETERS_NOT_SUPPORTED	0x053900
++#define SS_UNRECOVERED_READ_ERROR		0x031100
++#define SS_WRITE_ERROR				0x030c02
++#define SS_WRITE_PROTECTED			0x072700
++
++#define SK(x)		((u8) ((x) >> 16))	/* Sense Key byte, etc. */
++#define ASC(x)		((u8) ((x) >> 8))
++#define ASCQ(x)		((u8) (x))
++
++
++/*-------------------------------------------------------------------------*/
++
++struct lun {
++	struct file	*filp;
++	loff_t		file_length;
++	loff_t		num_sectors;
++
++	unsigned int	ro : 1;
++	unsigned int	prevent_medium_removal : 1;
++	unsigned int	registered : 1;
++	unsigned int	info_valid : 1;
++
++	u32		sense_data;
++	u32		sense_data_info;
++	u32		unit_attention_data;
++
++	struct device	dev;
++};
++
++#define backing_file_is_open(curlun)	((curlun)->filp != NULL)
++
++
++/* Big enough to hold our biggest descriptor */
++#define EP0_BUFSIZE	256
++#define DELAYED_STATUS	(EP0_BUFSIZE + 999)	/* An impossibly large value */
++
++/* Number of buffers we will use.  2 is enough for double-buffering */
++#define NUM_BUFFERS	2
++
++enum fsg_buffer_state {
++	BUF_STATE_EMPTY = 0,
++	BUF_STATE_FULL,
++	BUF_STATE_BUSY
++};
++
++struct fsg_buffhd {
++	void				*buf;
++	enum fsg_buffer_state		state;
++	struct fsg_buffhd		*next;
++
++	/* The NetChip 2280 is faster, and handles some protocol faults
++	 * better, if we don't submit any short bulk-out read requests.
++	 * So we will record the intended request length here. */
++	unsigned int			bulk_out_intended_length;
++
++	struct usb_request		*inreq;
++	int				inreq_busy;
++	struct usb_request		*outreq;
++	int				outreq_busy;
++};
++
++enum fsg_state {
++	/* This one isn't used anywhere */
++	FSG_STATE_COMMAND_PHASE = -10,
++
++	FSG_STATE_DATA_PHASE,
++	FSG_STATE_STATUS_PHASE,
++
++	FSG_STATE_IDLE = 0,
++	FSG_STATE_ABORT_BULK_OUT,
++	FSG_STATE_RESET,
++	FSG_STATE_CONFIG_CHANGE,
++	FSG_STATE_EXIT,
++	FSG_STATE_TERMINATED
++};
++
++enum data_direction {
++	DATA_DIR_UNKNOWN = 0,
++	DATA_DIR_FROM_HOST,
++	DATA_DIR_TO_HOST,
++	DATA_DIR_NONE
++};
++
++struct fsg_dev {
++	/* lock protects: state and all the req_busy's */
++	spinlock_t		lock;
++
++	/* filesem protects: backing files in use */
++	struct rw_semaphore	filesem;
++
++	/* reference counting: wait until all LUNs are released */
++	struct kref		ref;
++
++	unsigned int		bulk_out_maxpacket;
++	enum fsg_state		state;		/* For exception handling */
++
++	u8			config, new_config;
++
++	unsigned int		running : 1;
++	unsigned int		phase_error : 1;
++	unsigned int		short_packet_received : 1;
++	unsigned int		bad_lun_okay : 1;
++
++	unsigned long		atomic_bitflags;
++#define REGISTERED		0
++#define CLEAR_BULK_HALTS	1
++#define SUSPENDED		2
++
++	struct usb_endpoint		*bulk_in;
++	struct usb_endpoint		*bulk_out;
++
++	struct fsg_buffhd	*next_buffhd_to_fill;
++	struct fsg_buffhd	*next_buffhd_to_drain;
++	struct fsg_buffhd	buffhds[NUM_BUFFERS];
++
++	int			thread_wakeup_needed;
++	struct completion	thread_notifier;
++	struct task_struct	*thread_task;
++
++	int			cmnd_size;
++	u8			cmnd[MAX_COMMAND_SIZE];
++	enum data_direction	data_dir;
++	u32			data_size;
++	u32			data_size_from_cmnd;
++	u32			tag;
++	unsigned int		lun;
++	u32			residue;
++	u32			usb_amount_left;
++
++	unsigned int		nluns;
++	struct lun		*luns;
++	struct lun		*curlun;
++
++	u32				buf_size;
++	const char		*vendor;
++	const char		*product;
++	int				release;
++
++	struct platform_device *pdev;
++	struct switch_dev sdev;
++	struct wake_lock wake_lock;
++};
++
++extern void mass_storage_stub_set_handlers(
++	struct module *_p_module,
++	ssize_t (*_p_show_file)(struct device *dev, struct device_attribute *attr, char *buf),
++	ssize_t (*_p_store_file)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count),
++	ssize_t (*_p_store_mass_storage_enable)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count),
++	ssize_t (*_p_show_mass_storage_enable)(struct device *dev, struct device_attribute *attr, char *buf));
++
++#endif
+diff --git a/drivers/usb/function/msm_hsusb.c b/drivers/usb/function/msm_hsusb.c
+index 83b97ea..d566d0c 100644
+--- a/drivers/usb/function/msm_hsusb.c
++++ b/drivers/usb/function/msm_hsusb.c
+@@ -196,6 +196,9 @@ struct usb_info {
+ 
+ 	struct clk *clk;
+ 	struct clk *pclk;
++
++	struct dentry *dent;
++	int usb_do_work_active;
+ };
+ 
+ struct usb_device_descriptor desc_device = {
+@@ -923,50 +926,6 @@ static void flush_all_endpoints(struct usb_info *ui)
+ 		flush_endpoint_sw(ui->ept + n);
+ }
+ 
+-/* add usb_connected notify behavior ===== */
+-static DEFINE_MUTEX(notify_sem);
+-static atomic_t atomic_usb_connected = ATOMIC_INIT(0);
+-static struct work_struct usb_connect_notifier_wq;
+-
+-static void send_usb_connect_notify(struct work_struct *send_usb_wq)
+-{
+-	static struct t_usb_status_notifier *notifier = NULL;
+-	mutex_lock(&notify_sem);
+-	list_for_each_entry(notifier, &g_lh_usb_notifier_list, notifier_link)	{
+-		if (notifier->func != NULL)	{
+-			/* Notify other drivers about USB online. */
+-			notifier->func(atomic_read(&atomic_usb_connected));
+-		}
+-	}
+-	mutex_unlock(&notify_sem);
+-}
+-
+-int usb_register_notifier(struct t_usb_status_notifier *notifier)
+-{
+-	if (!notifier || !notifier->name || !notifier->func)
+-		return -EINVAL;
+-
+-	mutex_lock(&notify_sem);
+-	list_add(&notifier->notifier_link,
+-		&g_lh_usb_notifier_list);
+-	mutex_unlock(&notify_sem);
+-	return 0;
+-}
+-
+-#ifdef MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE
+-static void usb_notify_connected(int connected)
+-{
+-	printk(KERN_DEBUG "\n\n%s() RUN(%d)...............\n\n\n",
+-		__func__, connected);
+-}
+-
+-static struct t_usb_status_notifier usb_notifier = {
+-	.name = "usb_connected",
+-	.func = usb_notify_connected,
+-};
+-#endif /* MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE */
+-/* END: add usb_connected notify behavior ===== */
+-
+ static irqreturn_t usb_interrupt(int irq, void *data)
+ {
+ 	struct usb_info *ui = data;
+@@ -1015,10 +974,8 @@ static irqreturn_t usb_interrupt(int irq, void *data)
+ 			 */
+ 			set_configuration(ui);
+ 		}
+-		if (atomic_read(&atomic_usb_connected) == 0)	{
+-			atomic_set(&atomic_usb_connected, 1);
+-			schedule_work(&usb_connect_notifier_wq);
+-		}
++		if (msm_usb_get_connect_status() == 0)
++			msm_usb_set_connect_status(1);
+ 	}
+ 
+ 	if (n & STS_SLI)
+@@ -1045,6 +1002,7 @@ static void msm_hsusb_request_reset(struct usb_info *reset_ui)
+ 	unsigned long flags;
+ 	spin_lock_irqsave(&reset_ui->lock, flags);
+ 	reset_ui->flags |= USB_FLAG_RESET;
++	reset_ui->usb_do_work_active = 1;
+ 	schedule_work(&reset_ui->work);
+ 	spin_unlock_irqrestore(&reset_ui->lock, flags);
+ }
+@@ -1054,7 +1012,7 @@ static ssize_t show_usb_cable_connect(struct device *dev,
+ 		char *buf)
+ {
+ 	unsigned length;
+-	length = sprintf(buf, "%d", atomic_read(&atomic_usb_connected));
++	length = sprintf(buf, "%d", msm_usb_get_connect_status());
+ 	return length;
+ }
+ 
+@@ -1065,7 +1023,7 @@ static char mfg_df_serialno[16];
+ static const char dummy_str[] = "000000000000";
+ /* Assign serial number 0 under DIAG mode */
+ static char g_normal_serialno[16];
+-
++int g_bUsbDiagMode = 0;
+ 
+ static ssize_t show_usb_serial_number(struct device *dev,
+ 		struct device_attribute *attr,
+@@ -1233,7 +1191,7 @@ static ssize_t store_usb_function_switch(struct device *dev,
+ static DEVICE_ATTR(usb_function_switch, 0666,
+ 	show_usb_function_switch, store_usb_function_switch);
+ 
+-static void usb_prepare(struct usb_info *ui)
++static int usb_prepare(struct usb_info *ui)
+ {
+ 	int ret = -1;
+ 
+@@ -1253,33 +1211,41 @@ static void usb_prepare(struct usb_info *ui)
+ 	ui->ep0out.max_pkt = 64;
+ 
+ 	ui->setup_req = usb_ept_alloc_req(&ui->ep0in, SETUP_BUF_SIZE);
++	if (ui->setup_req == NULL)
++		goto setup_req_fail;
+ 
+ 	INIT_WORK(&ui->work, usb_do_work);
+-
+-#ifdef MSM_HSUSB_SHOW_USB_NOTIFIER_MESSAGE
+-	usb_register_notifier(&usb_notifier);
+-#endif
+-	INIT_WORK(&usb_connect_notifier_wq, send_usb_connect_notify);
+-
+ 	ret = device_create_file(&ui->pdev->dev,
+ 		&dev_attr_usb_cable_connect);
+ 	if (ret != 0)
+-		printk(KERN_WARNING "dev_attr_usb_cable_connect failed\n");
++		goto create_cable_connect_fail;
+ 
+ 	ret = device_create_file(&ui->pdev->dev,
+ 		&dev_attr_usb_serial_number);
+ 	if (ret != 0)
+-		printk(KERN_WARNING "dev_attr_usb_serial_number failed\n");
++		goto create_usb_serial_number_fail;
+ 
+ 	ret = device_create_file(&ui->pdev->dev,
+ 		&dev_attr_dummy_usb_serial_number);
+ 	if (ret != 0)
+-		printk(KERN_WARNING "dev_attr_dummy_usb_serial_number failed\n");
++		goto create_dummy_usb_serial_number_fail;
+ 
+ 	ret = device_create_file(&ui->pdev->dev,
+ 		&dev_attr_usb_function_switch);
+ 	if (ret != 0)
+-		printk(KERN_WARNING "dev_attr_usb_function_switch failed\n");
++		goto create_dummy_usb_function_switch_fail;
++	return 0;
++
++create_dummy_usb_function_switch_fail:
++	device_remove_file(&ui->pdev->dev, &dev_attr_dummy_usb_serial_number);
++create_dummy_usb_serial_number_fail:
++	device_remove_file(&ui->pdev->dev, &dev_attr_usb_serial_number);
++create_usb_serial_number_fail:
++	device_remove_file(&ui->pdev->dev, &dev_attr_usb_cable_connect);
++create_cable_connect_fail:
++	kfree(ui->setup_req);
++setup_req_fail:
++	return -1;
+ }
+ 
+ static void usb_suspend_phy(struct usb_info *ui)
+@@ -1290,7 +1256,7 @@ static void usb_suspend_phy(struct usb_info *ui)
+ 	ulpi_write(ui, 1 << 6, 0x06);
+ }
+ 
+-static void usb_bind_driver(struct usb_info *ui, struct usb_function_info *fi)
++static int usb_bind_driver(struct usb_info *ui, struct usb_function_info *fi)
+ {
+ 	struct usb_endpoint *ept;
+ 	struct usb_endpoint_descriptor *ed;
+@@ -1299,12 +1265,12 @@ static void usb_bind_driver(struct usb_info *ui, struct usb_function_info *fi)
+ 	unsigned n, count;
+ 
+ 	if (func->ifc_num > 2)
+-		return;
++		return -1;
+ 
+ 	count = func->ifc_ept_count;
+ 
+ 	if (count > 8)
+-		return;
++		return -1;
+ 
+ 	fi->ifc[0].bLength = USB_DT_INTERFACE_SIZE;
+ 	fi->ifc[0].bDescriptorType = USB_DT_INTERFACE;
+@@ -1331,7 +1297,7 @@ static void usb_bind_driver(struct usb_info *ui, struct usb_function_info *fi)
+ 			printk(KERN_WARNING
+ 			       "failed to allocated endpoint %d\n", n);
+ 			free_endpoints(ui, fi);
+-			return;
++			return -1;
+ 		}
+ 		ed = &(fi->ept[n].desc);
+ 
+@@ -1363,8 +1329,25 @@ static void usb_bind_driver(struct usb_info *ui, struct usb_function_info *fi)
+ 	}
+ 	fi->endpoints = count;
+ 
+-	func->bind(elist, func->context);
+-	printk(KERN_DEBUG "%s: %s\n", __func__, func->name);
++	printk(KERN_DEBUG "Attempting to bind function driver %s\n", func->name);
++	if (func->bind(elist, func->context)) {
++		printk(KERN_WARNING
++		       "Failed to bind function driver %s\n", func->name);
++		free_endpoints(ui, fi);
++		fi->endpoints = 0;
++		if (func->cdc_desc)
++			ui->next_ifc_num--;
++		return -1;
++	}
++
++	printk(KERN_DEBUG "Successfully bound function driver %s\n", func->name);
++	return 0;
++}
++
++static void usb_unbind_driver(struct usb_info *ui, struct usb_function_info *fi)
++{
++	fi->func->unbind(fi->func->context);
++	free_endpoints(ui, fi);
+ }
+ 
+ static void usb_reset(struct usb_info *ui)
+@@ -1438,7 +1421,6 @@ static void usb_start(struct usb_info *ui)
+ 
+ 	for (i = 0; i < ui->num_funcs; i++) {
+ 		struct usb_function_info *fi = ui->func[i];
+-		usb_bind_driver(ui, fi);
+ 		if (fi->endpoints)
+ 			count++;
+ 	}
+@@ -1451,6 +1433,7 @@ static void usb_start(struct usb_info *ui)
+ 
+ 	spin_lock_irqsave(&ui->lock, flags);
+ 	ui->flags |= USB_FLAG_START;
++	ui->usb_do_work_active = 1;
+ 	schedule_work(&ui->work);
+ 	spin_unlock_irqrestore(&ui->lock, flags);
+ }
+@@ -1491,7 +1474,8 @@ struct usb_interface_descriptor *get_ifc_desc(const char *function)
+ 		return NULL;
+ 	return &fi->ifc[0];
+ }
+-static void usb_try_to_bind(void)
++
++static void usb_try_to_start(void)
+ {
+ 	struct usb_info *ui = the_usb_info;
+ 	struct msm_hsusb_platform_data *pdata;
+@@ -1515,15 +1499,32 @@ static void usb_try_to_bind(void)
+ 
+ 	/* we have found all the needed functions */
+ 	ui->bound = 1;
+-	printk(KERN_DEBUG "%s: functions bound. starting.\n", __func__);
++	printk(KERN_DEBUG "%s: functions found. starting.\n", __func__);
+ 	usb_start(ui);
+ }
+ 
+ int usb_function_register(struct usb_function *driver)
+ {
+ 	struct usb_function_info *fi;
++	struct usb_info *ui = the_usb_info;
++	struct msm_hsusb_platform_data *pdata;
+ 	unsigned n;
+ 	int ret = 0;
++	int i;
++	int wanted = 0;
++
++	/* first of all, check this function is wanted by the platform */
++	pdata = ui->pdev->dev.platform_data;
++	for (i = 0; i < pdata->num_functions; i++) {
++		if (!strcmp(pdata->functions[i], driver->name)) {
++			wanted = 1;
++			break;
++		}
++	}
++	if (!wanted) {
++		printk("Ignoring unwanted USB function %s\n", driver->name);
++		return 0;
++	}
+ 
+ 	mutex_lock(&usb_function_list_lock);
+ 
+@@ -1537,8 +1538,15 @@ int usb_function_register(struct usb_function *driver)
+ 	fi->enabled = !driver->disabled;
+ 	list_add(&fi->list, &usb_function_list);
+ 
+-	usb_try_to_bind();
+-	printk(KERN_DEBUG "%s: %s\n", __func__, driver->name);
++	if (usb_bind_driver(ui, fi)) {
++		printk(KERN_ERR "Failed to bind USB function driver %s\n", driver->name);
++		list_del(&fi->list);
++		kfree(fi);
++		return -1;
++	}
++	mutex_unlock(&usb_function_list_lock);
++	return 0;
++
+ fail:
+ 	mutex_unlock(&usb_function_list_lock);
+ 	return ret;
+@@ -1564,24 +1572,6 @@ int usb_function_enable(const char *function, int enable)
+ 	return fi->enabled;
+ }
+ 
+-static int usb_free(struct usb_info *ui, int ret)
+-{
+-	if (ui->irq)
+-		free_irq(ui->irq, 0);
+-	if (ui->pool)
+-		dma_pool_destroy(ui->pool);
+-	if (ui->dma)
+-		dma_free_coherent(&ui->pdev->dev, 4096, ui->buf, ui->dma);
+-	if (ui->addr)
+-		iounmap(ui->addr);
+-	if (ui->clk)
+-		clk_put(ui->clk);
+-	if (ui->pclk)
+-		clk_put(ui->pclk);
+-	kfree(ui);
+-	return ret;
+-}
+-
+ static void usb_do_work_check_vbus(struct usb_info *ui)
+ {
+ 	unsigned long iflags;
+@@ -1633,8 +1623,8 @@ static void usb_do_work(struct work_struct *w)
+ 				/* prevent irq context stuff from doing anything */
+ 				spin_lock_irqsave(&ui->lock, iflags);
+ 
+-				if (atomic_read(&atomic_usb_connected) == 1)
+-					atomic_set(&atomic_usb_connected, 0);
++				if (msm_usb_get_connect_status() == 1)
++					msm_usb_set_connect_status(0);
+ 
+ 				ui->running = 0;
+ 				ui->online = 0;
+@@ -1686,6 +1676,8 @@ static void usb_do_work(struct work_struct *w)
+ 			break;
+ 		}
+ 	}
++
++	ui->usb_do_work_active = 0;
+ }
+ 
+ 
+@@ -1702,6 +1694,7 @@ void msm_hsusb_set_vbus_state(int online)
+ 	if (vbus != online) {
+ 		vbus = online;
+ 		if (ui) {
++			ui->usb_do_work_active = 1;
+ 			if (online)
+ 			{
+ 				/*ui->flags |= USB_FLAG_VBUS_ONLINE;
+@@ -1731,6 +1724,7 @@ static enum hrtimer_restart vbus_polling_timer_func(struct hrtimer *timer)
+ 	{
+ 		spin_lock_irqsave(&ui->lock, flags);
+ 		ui->flags |= USB_FLAG_VBUS_ONLINE;
++		ui->usb_do_work_active = 1;
+ 		schedule_work(&ui->work);
+ 		spin_unlock_irqrestore(&ui->lock, flags);
+ 	}
+@@ -1816,6 +1810,7 @@ static ssize_t debug_write_reset(struct file *file, const char __user *buf,
+ 
+ 	spin_lock_irqsave(&ui->lock, flags);
+ 	ui->flags |= USB_FLAG_RESET;
++	ui->usb_do_work_active = 1;
+ 	schedule_work(&ui->work);
+ 	spin_unlock_irqrestore(&ui->lock, flags);
+ 
+@@ -1852,32 +1847,96 @@ const struct file_operations debug_cycle_ops = {
+ 
+ static void usb_debugfs_init(struct usb_info *ui)
+ {
+-	struct dentry *dent;
+-	dent = debugfs_create_dir("usb", 0);
+-	if (IS_ERR(dent))
++	ui->dent = debugfs_create_dir("usb", 0);
++	if (IS_ERR(ui->dent)) {
++		ui->dent = NULL;
+ 		return;
++	}
++
++	debugfs_create_file("status", 0444, ui->dent, ui, &debug_stat_ops);
++	debugfs_create_file("reset", 0222, ui->dent, ui, &debug_reset_ops);
++	debugfs_create_file("cycle", 0222, ui->dent, ui, &debug_cycle_ops);
++}
+ 
+-	debugfs_create_file("status", 0444, dent, ui, &debug_stat_ops);
+-	debugfs_create_file("reset", 0222, dent, ui, &debug_reset_ops);
+-	debugfs_create_file("cycle", 0222, dent, ui, &debug_cycle_ops);
++static void usb_debugfs_shutdown(struct usb_info *ui)
++{
++        if (ui->dent)
++                debugfs_remove_recursive(ui->dent);
+ }
++
+ #else
+ static void usb_debugfs_init(struct usb_info *ui) {}
++static void usb_debugfs_shutdown(struct usb_info *ui) {}
+ #endif
+ 
++
++
++static int usb_remove(struct platform_device *pdev)
++{
++	struct usb_info *ui = platform_get_drvdata(pdev);
++	struct list_head *entry;
++	struct list_head *temp;
++
++	/* remove any external triggers */
++	usb_debugfs_shutdown(ui);
++	device_remove_file(&ui->pdev->dev, &dev_attr_usb_cable_connect);
++	device_remove_file(&ui->pdev->dev, &dev_attr_usb_serial_number);
++	device_remove_file(&ui->pdev->dev, &dev_attr_dummy_usb_serial_number);
++	device_remove_file(&ui->pdev->dev, &dev_attr_usb_function_switch);
++	msm_hsusb_set_vbus_state_notifier(NULL);
++
++	/* mark us as offline and wait for worker task to stop */
++	msm_hsusb_set_vbus_state(0);
++	while(ui->usb_do_work_active || ui->flags)
++		msleep(1);
++
++	/* reset the hardware */
++	writel(2, USB_USBCMD);
++	msleep(10);
++
++	/* unbind function drivers */
++	list_for_each_safe(entry, temp, &usb_function_list) {
++		struct usb_function_info *fi =
++			list_entry(entry, struct usb_function_info, list);
++		if (fi->func)
++			usb_unbind_driver(ui, fi);
++		list_del(entry);
++		kfree(fi);
++	}
++
++	/* finally, clean up any resources */
++	if (ui->phy_shutdown)
++		ui->phy_shutdown();
++	do_free_req(ui, to_msm_request(ui->setup_req));
++	disable_irq_wake(ui->irq);
++	free_irq(ui->irq, ui);
++	dma_pool_destroy(ui->pool);
++	dma_free_coherent(&ui->pdev->dev, 4096, ui->buf, ui->dma);
++	iounmap(ui->addr);
++	clk_put(ui->clk);
++	clk_put(ui->pclk);
++	if (ui->func)
++		kfree(ui->func);
++	kfree(ui);
++	return 0;
++}
++
++
++
++
+ static int usb_probe(struct platform_device *pdev)
+ {
+ 	struct resource *res;
+ 	struct usb_info *ui;
+-	int irq;
+ 	int ret;
+ 
+ 	ui = kzalloc(sizeof(struct usb_info), GFP_KERNEL);
+ 	if (!ui)
+-		return -ENOMEM;
++		goto alloc_fail;
+ 
+ 	spin_lock_init(&ui->lock);
+ 	ui->pdev = pdev;
++	platform_set_drvdata(pdev, ui);
+ 
+ 	if (pdev->dev.platform_data) {
+ 		struct msm_hsusb_platform_data *pdata = pdev->dev.platform_data;
+@@ -1898,58 +1957,55 @@ static int usb_probe(struct platform_device *pdev)
+ 
+ 		ui->func = kzalloc(sizeof(struct usb_function *) *
+ 				   pdata->num_functions, GFP_KERNEL);
++		if (ui->func == NULL)
++			goto func_alloc_fail;
+ 
+ 		pdata = ui->pdev->dev.platform_data;
+ 		strncpy(g_normal_serialno,
+ 			pdata->serial_number, strlen(pdata->serial_number));
+-
+-		if (!ui->func) {
+-			kfree(ui);
+-			return -ENOMEM;
+-		}
+ 	}
+ 
+-	irq = platform_get_irq(pdev, 0);
++	ui->irq = platform_get_irq(pdev, 0);
+ 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+-	if (!res || (irq < 0))
+-		return usb_free(ui, -ENODEV);
++	if (!res || (ui->irq < 0))
++		goto get_resources_fail;
+ 
+ 	ui->addr = ioremap(res->start, 4096);
+ 	if (!ui->addr)
+-		return usb_free(ui, -ENOMEM);
++		goto ioremap_fail;
+ 
+ 	ui->buf = dma_alloc_coherent(&pdev->dev, 4096, &ui->dma, GFP_KERNEL);
+ 	if (!ui->buf)
+-		return usb_free(ui, -ENOMEM);
++		goto dma_alloc_fail;
+ 
+ 	ui->pool = dma_pool_create("hsusb", NULL, 32, 32, 0);
+ 	if (!ui->pool)
+-		return usb_free(ui, -ENOMEM);
++		goto pool_create_fail;
+ 
+ 	printk(KERN_INFO "usb_probe() io=%p, irq=%d, dma=%p(%x)\n",
+-	       ui->addr, irq, ui->buf, ui->dma);
++	       ui->addr, ui->irq, ui->buf, ui->dma);
+ 
+ 	ui->clk = clk_get(&pdev->dev, "usb_hs_clk");
+ 	if (IS_ERR(ui->clk))
+-		return usb_free(ui, PTR_ERR(ui->clk));
++		goto hs_clk_get_fail;
+ 
+ 	ui->pclk = clk_get(&pdev->dev, "usb_hs_pclk");
+ 	if (IS_ERR(ui->pclk))
+-		return usb_free(ui, PTR_ERR(ui->pclk));
++		goto hs_pclk_get_fail;
+ 
+-	ret = request_irq(irq, usb_interrupt, 0, pdev->name, ui);
++	ret = request_irq(ui->irq, usb_interrupt, 0, pdev->name, ui);
+ 	if (ret)
+-		return usb_free(ui, ret);
+-	enable_irq_wake(irq);
+-	ui->irq = irq;
++		goto request_irq_fail;
++	enable_irq_wake(ui->irq);
+ 
+ 	the_usb_info = ui;
+ 
+ 	usb_debugfs_init(ui);
+ 
+-	usb_prepare(ui);
++	if (usb_prepare(ui))
++		goto usb_prepare_fail;
+ 
+-	 perf_lock_init(&usb_perf_lock, PERF_LOCK_HIGHEST, "usb");
++	perf_lock_init(&usb_perf_lock, PERF_LOCK_HIGHEST, "usb");
+ 
+ 	/* initialize mfg serial number */
+ 	usb_setting_serial_number_mfg = 0;
+@@ -1957,22 +2013,154 @@ static int usb_probe(struct platform_device *pdev)
+ 
+ 	hrtimer_init(&ui->vbus_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	ui->vbus_timer.function = vbus_polling_timer_func ;
+-
++	msm_hsusb_set_vbus_state_notifier(&msm_hsusb_set_vbus_state);
+ 	return 0;
++
++usb_prepare_fail:
++	free_irq(ui->irq, ui);
++request_irq_fail:
++	clk_put(ui->pclk);
++hs_pclk_get_fail:
++	clk_put(ui->clk);
++hs_clk_get_fail:
++	dma_pool_destroy(ui->pool);
++pool_create_fail:
++	dma_free_coherent(&ui->pdev->dev, 4096, ui->buf, ui->dma);
++dma_alloc_fail:
++	iounmap(ui->addr);
++ioremap_fail:
++get_resources_fail:
++	if (ui->func)
++		kfree(ui->func);
++func_alloc_fail:
++	kfree(ui);
++alloc_fail:
++	printk(KERN_ERR "msm_hsusb_probe failed\n");
++	return -ENOMEM;
+ }
+ 
+ static struct platform_driver usb_driver = {
+ 	.probe = usb_probe,
++	.remove = usb_remove,
+ 	.driver = { .name = "msm_hsusb", },
+ };
+ 
++#ifdef CONFIG_USB_FUNCTION_NULL
++extern void null_init(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_ZERO
++extern void zero_init(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_LOOPBACK
++extern void loopback_init(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_ADB
++extern void adb_init(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_UMS
++extern void ums_init(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_MASS_STORAGE
++extern void fsg_init(void);
++extern void fsg_exit(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_DIAG
++extern void diag_init(void);
++extern void diag_exit(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_ETHER
++extern void ether_init(void);
++extern void ether_exit(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_SERIAL
++extern void fs_init(void);
++extern void fs_exit(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_FSYNC
++extern void fsync_init(void);
++extern void fsync_exit(void);
++#endif
++#ifdef CONFIG_USB_FUNCTION_MTP_TUNNEL
++extern void mtp_tunnel_init(void);
++extern void mtp_tunnel_exit(void);
++#endif
++
++static void __exit usb_exit(void)
++{
++	platform_driver_unregister(&usb_driver);
++#ifdef CONFIG_USB_FUNCTION_MASS_STORAGE
++	fsg_exit();
++#endif
++#ifdef CONFIG_USB_FUNCTION_DIAG
++	diag_exit();
++#endif
++#ifdef CONFIG_USB_FUNCTION_ETHER
++	ether_exit();
++#endif
++#ifdef CONFIG_USB_FUNCTION_SERIAL
++	fs_exit();
++#endif
++#ifdef CONFIG_USB_FUNCTION_FSYNC
++	fsync_exit();
++#endif
++#ifdef CONFIG_USB_FUNCTION_MTP_TUNNEL
++	mtp_tunnel_exit();
++#endif
++}
++
++module_exit(usb_exit);
++
+ static int __init usb_init(void)
+ {
+-	return platform_driver_register(&usb_driver);
++	int ret;
++
++	if ((ret = platform_driver_register(&usb_driver)) < 0)
++		return ret;
++
++#ifdef CONFIG_USB_FUNCTION_NULL
++	null_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_ZERO
++	zero_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_LOOPBACK
++	loopback_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_ADB
++	adb_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_UMS
++	ums_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_MASS_STORAGE
++	fsg_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_DIAG
++	diag_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_ETHER
++	ether_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_SERIAL
++	fs_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_FSYNC
++	fsync_init();
++#endif
++#ifdef CONFIG_USB_FUNCTION_MTP_TUNNEL
++	mtp_tunnel_init();
++#endif
++	usb_try_to_start();
++
++	return 0;
+ }
+ 
+ module_init(usb_init);
+ 
++MODULE_DESCRIPTION("MSM 72K USB Function Controller");
++MODULE_AUTHOR("Mike Lockwood, Brian Swetland");
++MODULE_LICENSE("GPL");
++
+ static void copy_string_descriptor(char *string, char *buffer)
+ {
+ 	int length, i;
+diff --git a/drivers/usb/function/mtp_tunnel.c b/drivers/usb/function/mtp_tunnel.c
+index df84844..b4b41e1 100644
+--- a/drivers/usb/function/mtp_tunnel.c
++++ b/drivers/usb/function/mtp_tunnel.c
+@@ -113,6 +113,7 @@ struct mtp_tunnel_context
+ };
+ 
+ static struct mtp_tunnel_context _context;
++static int cleanup;
+ 
+ struct _mtp_specific_request {
+ 	//unsigned char request_specific_sequence;
+@@ -610,8 +611,11 @@ static void mtp_tunnel_unbind(void *_ctxt)
+ 	struct mtp_tunnel_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+ 
+-	printk(KERN_DEBUG "mtp_tunnel_unbind()\n");
+-
++	if (ctxt->read_req)
++		usb_ept_free_req(ctxt->out, ctxt->read_req);
++	while ((req = req_get(ctxt, &ctxt->rx_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
+ 	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
+ 		usb_ept_free_req(ctxt->out, req);
+ 	}
+@@ -619,20 +623,14 @@ static void mtp_tunnel_unbind(void *_ctxt)
+ 		usb_ept_free_req(ctxt->in, req);
+ 	}
+ 
+-	ctxt->online = 0;
+-	ctxt->error = 1;
++	device_remove_file(&mtp_tunnel_dev, &dev_attr_mtp_tunnel_status);
++	device_unregister(&mtp_tunnel_dev);
+ 
+-	if (ctxt->registered)	{
+-		device_remove_file(&mtp_tunnel_dev, &dev_attr_mtp_tunnel_status);
+-		device_unregister(&mtp_tunnel_dev);
+-		ctxt->registered = 0;
+-		}
+-	
+-	/* readers may be blocked waiting for us to go online */
+-	wake_up(&ctxt->read_wq);
++	misc_deregister(&mtp_tunnel_device);
++	misc_deregister(&mtp_tunnel_enable_device);
+ }
+ 
+-static void mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
++static int mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct mtp_tunnel_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+@@ -640,6 +638,7 @@ static void mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
+ #ifndef ALLOCATE_16K_BUFF
+ 	int n;
+ #endif
++
+ 	ctxt->registered = 0;
+ 	ctxt->out = ept[0];
+ 	ctxt->in = ept[1];
+@@ -651,7 +650,7 @@ static void mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
+ #endif
+ 	{
+ 		req = usb_ept_alloc_req(ctxt->out, TXN_MAX);
+-		if (req == 0) goto fail;
++		if (req == 0) goto rx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = mtp_tunnel_complete_out;
+ 		req_put(ctxt, &ctxt->rx_idle, req);
+@@ -663,23 +662,16 @@ static void mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
+ #endif
+ 	{
+ 		req = usb_ept_alloc_req(ctxt->in, TXN_MAX);
+-		if (req == 0) goto fail;
++		if (req == 0) goto tx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = mtp_tunnel_complete_in;
+ 		req_put(ctxt, &ctxt->tx_idle, req);
+ 	}
+ 
+-#ifndef ALLOCATE_16K_BUFF
+-	printk(KERN_DEBUG
+-	       "mtp_tunnel_bind() allocated %d rx and %d tx requests\n",
+-	       RX_REQ_MAX, TX_REQ_MAX);
+-#else
+-	printk(KERN_DEBUG
+-		"%s(): allocated buffer: %d\n", __func__, TXN_MAX);
+-#endif
+-
+-	misc_register(&mtp_tunnel_device);
+-	misc_register(&mtp_tunnel_enable_device);
++	if (misc_register(&mtp_tunnel_device))
++		goto misc_register_1_fail;
++	if (misc_register(&mtp_tunnel_enable_device))
++		goto misc_register_2_fail;
+ 
+ 	mtp_tunnel_dev.release = mtp_tunnel_dev_release;
+ 	mtp_tunnel_dev.parent = &ctxt->pdev->dev;
+@@ -688,23 +680,42 @@ static void mtp_tunnel_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	ret = device_register(&mtp_tunnel_dev);
+ 	if (ret != 0) {
+ 		printk(KERN_WARNING "mtp_tunnel_dev failed to register device: %d\n", ret);
+-		goto fail_dev_register_fail;
++		goto device_register_fail;
+ 	}
+ 	ret = device_create_file(&mtp_tunnel_dev, &dev_attr_mtp_tunnel_status);
+ 	if (ret != 0) {
+ 		printk(KERN_WARNING "mtp_tunnel_dev device_create_file failed: %d\n", ret);
+-		device_unregister(&mtp_tunnel_dev);
+-		goto fail_dev_register_fail;
++		goto device_create_file_fail;
+ 	}
+-	ctxt->registered = 1;
+-	return;
+ 
+-fail_dev_register_fail:
+-	printk(KERN_ERR "%s() could not allocate requests\n", __func__);
++	ctxt->registered = 1;
++#ifndef ALLOCATE_16K_BUFF
++	printk(KERN_DEBUG
++	       "mtp_tunnel_bind() allocated %d rx and %d tx requests\n",
++	       RX_REQ_MAX, TX_REQ_MAX);
++#else
++	printk(KERN_DEBUG
++		"%s(): allocated buffer: %d\n", __func__, TXN_MAX);
++#endif
++	return 0;
+ 
+-fail:
++device_create_file_fail:
++	device_unregister(&mtp_tunnel_dev);
++device_register_fail:
++	misc_register(&mtp_tunnel_enable_device);
++misc_register_2_fail:
++	misc_deregister(&mtp_tunnel_device);
++misc_register_1_fail:
++tx_idle_fail:
++	while ((req = req_get(ctxt, &ctxt->tx_idle))) {
++		usb_ept_free_req(ctxt->in, req);
++	}
++rx_idle_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
+ 	printk(KERN_WARNING "mtp_tunnel_bind() could not allocate requests\n");
+-	mtp_tunnel_unbind(ctxt);
++	return -1;
+ }
+ 
+ static void mtp_tunnel_configure(int configured, void *_ctxt)
+@@ -824,7 +835,7 @@ static struct usb_function usb_func_mtp_tunnel = {
+ 	.ifc_index = STRING_MTP,
+ };
+ 
+-static int __init mtp_tunnel_init(void)
++void mtp_tunnel_init(void)
+ {
+ 	struct mtp_tunnel_context *ctxt = &_context;
+ 	int retval;
+@@ -848,16 +859,28 @@ static int __init mtp_tunnel_init(void)
+ 	INIT_LIST_HEAD(&ctxt->tx_idle);
+ 	retval = platform_driver_register (&mtp_tunnel_driver);
+ 	if (retval < 0)
+-		return retval;
++		goto platform_driver_register_fail;
+ 	retval = platform_device_register (&mtp_tunnel_device_register);
+ 	if (retval < 0)
+-		goto err_register_device;
+-
+-	return usb_function_register(&usb_func_mtp_tunnel);
++		goto platform_device_register_fail;
++	retval = usb_function_register(&usb_func_mtp_tunnel);
++	if (retval)
++		goto usb_function_register_fail;
++	cleanup = 1;
++	return;
+ 
+-err_register_device:
++usb_function_register_fail:
++	platform_device_unregister(&mtp_tunnel_device_register);
++platform_device_register_fail:
+ 	platform_driver_unregister(&mtp_tunnel_driver);
+-	return retval;
++platform_driver_register_fail:
++	return;
+ }
+ 
+-module_init(mtp_tunnel_init);
++void mtp_tunnel_exit(void)
++{
++	if (cleanup) {
++		platform_driver_unregister(&mtp_tunnel_driver);
++		platform_device_unregister(&mtp_tunnel_device_register);
++	}
++}
+diff --git a/drivers/usb/function/null.c b/drivers/usb/function/null.c
+index 68f1e35..d3b425a 100644
+--- a/drivers/usb/function/null.c
++++ b/drivers/usb/function/null.c
+@@ -31,20 +31,28 @@ struct null_context
+ 
+ static struct null_context _context;
+ 
+-static void null_bind(struct usb_endpoint **ept, void *_ctxt)
++static int null_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct null_context *ctxt = _ctxt;
+ 	ctxt->out = ept[0];
+-	printk(KERN_INFO "null_bind() %p\n", ctxt->out);
+ 
+-	ctxt->req0 = usb_ept_alloc_req(ctxt->out, 4096);
+-	ctxt->req1 = usb_ept_alloc_req(ctxt->out, 4096);
++	if ((ctxt->req0 = usb_ept_alloc_req(ctxt->out, 4096)) == NULL)
++		goto req0_fail;
++	if ((ctxt->req1 = usb_ept_alloc_req(ctxt->out, 4096)) == NULL)
++		goto req1_fail;
++	return 0;
++
++req1_fail:
++	usb_ept_free_req(ctxt->out, ctxt->req0);
++req0_fail:
++	printk(KERN_WARNING "null_bind() could not allocate requests\n");
++	return -1;
+ }
+ 
+ static void null_unbind(void *_ctxt)
+ {
+ 	struct null_context *ctxt = _ctxt;
+-	printk(KERN_INFO "null_unbind()\n");
++
+ 	if (ctxt->req0) {
+ 		usb_ept_free_req(ctxt->out, ctxt->req0);
+ 		ctxt->req0 = 0;
+@@ -62,7 +70,6 @@ static void null_queue_out(struct null_context *ctxt, struct usb_request *req);
+ static void null_out_complete(struct usb_endpoint *ept, struct usb_request *req)
+ {
+ 	struct null_context *ctxt = req->context;
+-	unsigned char *data = req->buf;
+ 
+ 	if (req->status != -ENODEV)
+ 		null_queue_out(ctxt, req);
+@@ -108,11 +115,7 @@ static struct usb_function usb_func_null = {
+ 	.ifc_ept_type = { EPT_BULK_OUT },
+ };
+ 
+-static int __init null_init(void)
++void null_init(void)
+ {
+-	printk(KERN_INFO "null_init()\n");
+-	usb_function_register(&usb_func_null);
+-	return 0;
++       usb_function_register(&usb_func_null);
+ }
+-
+-module_init(null_init);
+diff --git a/drivers/usb/function/rndis.c b/drivers/usb/function/rndis.c
+index 3d03664..cfa0437 100644
+--- a/drivers/usb/function/rndis.c
++++ b/drivers/usb/function/rndis.c
+@@ -1403,7 +1403,7 @@ static struct proc_dir_entry *rndis_connect_state [RNDIS_MAX_CONFIGS];
+ #endif	/* CONFIG_USB_GADGET_DEBUG_FILES */
+ 
+ 
+-int __devinit rndis_init (void)
++int rndis_init (void)
+ {
+ 	u8 i;
+ 
+diff --git a/drivers/usb/function/ums.c b/drivers/usb/function/ums.c
+index 59621a5..120474d 100644
+--- a/drivers/usb/function/ums.c
++++ b/drivers/usb/function/ums.c
+@@ -332,12 +332,12 @@ static struct miscdevice ums_device = {
+ 	.fops = &ums_fops,
+ };
+ 
+-static void ums_bind(struct usb_endpoint **ept, void *_ctxt)
++static int ums_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct ums_context *ctxt = _ctxt;
+ 	struct usb_request *req;
+ 	int n;
+-	
++
+ 	ctxt->out = ept[0];
+ 	ctxt->in = ept[1];
+ 
+@@ -345,7 +345,7 @@ static void ums_bind(struct usb_endpoint **ept, void *_ctxt)
+ 	
+ 	for(n = 0; n < RX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->out, 4096);
+-		if(req == 0) goto fail;
++		if(req == 0) goto rx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = ums_complete_out;
+ 		req_put(ctxt, &ctxt->rx_idle, req);
+@@ -353,22 +353,52 @@ static void ums_bind(struct usb_endpoint **ept, void *_ctxt)
+ 
+ 	for(n = 0; n < TX_REQ_MAX; n++) {
+ 		req = usb_ept_alloc_req(ctxt->in, 4096);
+-		if(req == 0) goto fail;
++		if(req == 0) goto tx_idle_fail;
+ 		req->context = ctxt;
+ 		req->complete = ums_complete_in;
+ 		req_put(ctxt, &ctxt->tx_idle, req);
+ 	}
+ 
++	if (misc_register(&ums_device))
++		goto misc_register_fail;
++
+ 	printk("ums_bind() allocated %d rx and %d tx requests\n",
+ 	       RX_REQ_MAX, TX_REQ_MAX);
+-	
+-	misc_register(&ums_device);
+-	return;
+-	
+-fail:
++	return 0;
++
++misc_register_fail:
++tx_idle_fail:
++        while ((req = req_get(ctxt, &ctxt->tx_idle))) {
++                usb_ept_free_req(ctxt->in, req);
++        }
++rx_idle_fail:
++	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
++                usb_ept_free_req(ctxt->out, req);
++        }
+ 	printk("ums_bind() could not allocate requests\n");
++	return -1;
++}
++
++static void ums_unbind(void *_ctxt)
++{
++	struct ums_context *ctxt = _ctxt;
++	struct usb_request *req;
+ 
+-	/* XXX release any we did allocate */
++	if(ctxt->read_req) {
++		usb_ept_free_req(ctxt->out, ctxt->read_req);
++		ctxt->read_req = 0;
++	}
++	while((req = req_get(ctxt, &ctxt->rx_done))) {
++		usb_ept_free_req(ctxt->out, req);
++	}
++	while ((req = req_get(ctxt, &ctxt->rx_idle))) {
++                usb_ept_free_req(ctxt->out, req);
++        }
++        while ((req = req_get(ctxt, &ctxt->tx_idle))) {
++                usb_ept_free_req(ctxt->in, req);
++        }
++
++	misc_deregister(&ums_device);
+ }
+ 
+ static int ums_setup(struct usb_ctrlrequest* req, void* buf, int len, void *_ctxt)
+@@ -429,6 +459,7 @@ static void ums_configure(int configured, void *_ctxt)
+ 
+ static struct usb_function usb_func_ums = {
+ 	.bind = ums_bind,
++	.unbind = ums_unbind,
+ 	.configure = ums_configure,
+ 	.setup = ums_setup,
+ 
+@@ -447,7 +478,7 @@ static struct usb_function usb_func_ums = {
+ 	.ifc_num = 1,
+ };
+ 
+-static int __init ums_init(void)
++void ums_init(void)
+ {
+ 	struct ums_context *ctxt = &_context;
+ 	DBG("ums_init()\n");
+@@ -460,12 +491,10 @@ static int __init ums_init(void)
+ 	atomic_set(&ctxt->open_excl, 0);
+ 	atomic_set(&ctxt->read_excl, 0);
+ 	atomic_set(&ctxt->write_excl, 0);
+-	
++
+ 	INIT_LIST_HEAD(&ctxt->rx_idle);
+ 	INIT_LIST_HEAD(&ctxt->rx_done);
+ 	INIT_LIST_HEAD(&ctxt->tx_idle);
+-	
+-	return usb_function_register(&usb_func_ums);
+-}
+ 
+-module_init(ums_init);
++	usb_function_register(&usb_func_ums);
++}
+diff --git a/drivers/usb/function/usb_function.h b/drivers/usb/function/usb_function.h
+index d06e5c9..a953021 100644
+--- a/drivers/usb/function/usb_function.h
++++ b/drivers/usb/function/usb_function.h
+@@ -75,7 +75,7 @@ struct usb_function
+ 	**
+ 	** might be a good place to allocate some usb_request objects
+ 	*/
+-	void (*bind)(struct usb_endpoint **ept, void *context);
++	int (*bind)(struct usb_endpoint **ept, void *context);
+ 
+ 	/* unbind() is called when the function is being removed.
+ 	** it is illegal to call and usb_ept_* hooks at this point
+@@ -138,13 +138,12 @@ struct usb_function
+ 	struct usb_descriptor_header **cdc_desc; 
+ };
+ 
+-unsigned return_usb_function_enabled(const char *function);
++extern unsigned return_usb_function_enabled(const char *function);
++extern int usb_function_register(struct usb_function *driver);
+ 
+-int usb_function_register(struct usb_function *driver);
+-
+-int usb_function_enable(const char *function, int enable);
+-struct usb_fi_ept *get_ept_info(const char *function);
+-struct usb_interface_descriptor *get_ifc_desc(const char *function);
++extern int usb_function_enable(const char *function, int enable);
++extern struct usb_fi_ept *get_ept_info(const char *function);
++extern struct usb_interface_descriptor *get_ifc_desc(const char *function);
+ 
+ /* Allocate a USB request.
+ ** Must be called from a context that can sleep.
+@@ -152,15 +151,15 @@ struct usb_interface_descriptor *get_ifc_desc(const char *function);
+ ** you and free'd when the request is free'd.  Otherwise
+ ** it is your responsibility to provide.
+ */
+-struct usb_request *usb_ept_alloc_req(struct usb_endpoint *ept, unsigned bufsize);
+-void usb_ept_free_req(struct usb_endpoint *ept, struct usb_request *req);
++extern struct usb_request *usb_ept_alloc_req(struct usb_endpoint *ept, unsigned bufsize);
++extern void usb_ept_free_req(struct usb_endpoint *ept, struct usb_request *req);
+ 
+ /* safely callable from any context
+ ** returns 0 if successfully queued and sets req->status = -EBUSY
+ ** req->status will change to a different value upon completion
+ ** (0 for success, -EIO, -ENODEV, etc for error)
+ */
+-int usb_ept_queue_xfer(struct usb_endpoint *ept, struct usb_request *req);
+-int usb_ept_flush(struct usb_endpoint *ept);
+-int usb_ept_get_max_packet(struct usb_endpoint *ept);
++extern int usb_ept_queue_xfer(struct usb_endpoint *ept, struct usb_request *req);
++extern int usb_ept_flush(struct usb_endpoint *ept);
++extern int usb_ept_get_max_packet(struct usb_endpoint *ept);
+ #endif
+diff --git a/drivers/usb/function/zero.c b/drivers/usb/function/zero.c
+index 5286ff5..df16e90 100644
+--- a/drivers/usb/function/zero.c
++++ b/drivers/usb/function/zero.c
+@@ -31,23 +31,31 @@ struct zero_context
+ 
+ static struct zero_context _context;
+ 
+-static void zero_bind(struct usb_endpoint **ept, void *_ctxt)
++static int zero_bind(struct usb_endpoint **ept, void *_ctxt)
+ {
+ 	struct zero_context *ctxt = _ctxt;
+ 	ctxt->in = ept[0];
+-	printk(KERN_INFO "zero_bind() %p\n", ctxt->in);
+ 
+-	ctxt->req0 = usb_ept_alloc_req(ctxt->in, 4096);
+-	ctxt->req1 = usb_ept_alloc_req(ctxt->in, 4096);
++	if ((ctxt->req0 = usb_ept_alloc_req(ctxt->in, 4096)) == NULL)
++		goto req0_fail;
++	if ((ctxt->req1 = usb_ept_alloc_req(ctxt->in, 4096)) == NULL)
++		goto req1_fail;
+ 
+ 	memset(ctxt->req0->buf, 0, 4096);
+ 	memset(ctxt->req1->buf, 0, 4096);
++
++	return 0;
++
++req1_fail:
++	usb_ept_free_req(ctxt->in, ctxt->req0);
++req0_fail:
++	printk("ums_bind() could not allocate requests\n");
++	return -1;
+ }
+ 
+ static void zero_unbind(void *_ctxt)
+ {
+ 	struct zero_context *ctxt = _ctxt;
+-	printk(KERN_INFO "null_unbind()\n");
+ 	if (ctxt->req0) {
+ 		usb_ept_free_req(ctxt->in, ctxt->req0);
+ 		ctxt->req0 = 0;
+@@ -64,7 +72,6 @@ static void zero_queue_in(struct zero_context *ctxt, struct usb_request *req);
+ static void zero_in_complete(struct usb_endpoint *ept, struct usb_request *req)
+ {
+ 	struct zero_context *ctxt = req->context;
+-	unsigned char *data = req->buf;
+ 
+ 	if (req->status != -ENODEV)
+ 		zero_queue_in(ctxt, req);
+@@ -112,11 +119,7 @@ static struct usb_function usb_func_zero = {
+ 	.ifc_num = 1,
+ };
+ 
+-static int __init zero_init(void)
++void zero_init(void)
+ {
+-	printk(KERN_INFO "zero_init()\n");
+-	usb_function_register(&usb_func_zero);
+-	return 0;
++       usb_function_register(&usb_func_zero);
+ }
+-
+-module_init(zero_init);
+diff --git a/drivers/usb/gadget/msm72k_udc.c b/drivers/usb/gadget/msm72k_udc.c
+index 09f1838..b79db0d 100644
+--- a/drivers/usb/gadget/msm72k_udc.c
++++ b/drivers/usb/gadget/msm72k_udc.c
+@@ -41,7 +41,6 @@
+ 
+ static const char driver_name[] = "msm72k_udc";
+ 
+-/* #define DEBUG */
+ /* #define VERBOSE */
+ #include <mach/msm_hsusb_hw.h>
+ 
+@@ -123,6 +122,7 @@ static void usb_do_work(struct work_struct *w);
+ #define USB_FLAG_VBUS_ONLINE    0x0002
+ #define USB_FLAG_VBUS_OFFLINE   0x0004
+ #define USB_FLAG_RESET          0x0008
++#define USB_FLAG_SHUTDOWN       0x0010
+ 
+ struct usb_info {
+ 	/* lock for register/queue/device state changes */
+@@ -160,6 +160,7 @@ struct usb_info {
+ 
+ 	int *phy_init_seq;
+ 	void (*phy_reset)(void);
++        void (*phy_shutdown)(void);
+ 
+ 	struct work_struct work;
+ 	unsigned phy_status;
+@@ -173,6 +174,8 @@ struct usb_info {
+ 
+ 	struct clk *clk;
+ 	struct clk *pclk;
++
++	struct dentry *dent;
+ };
+ 
+ static const struct usb_ep_ops msm72k_ep_ops;
+@@ -755,6 +758,9 @@ static irqreturn_t usb_interrupt(int irq, void *data)
+ 				ui->driver->disconnect(&ui->gadget);
+ 			}
+ 		}
++
++		if (msm_usb_get_connect_status() == 0)
++			msm_usb_set_connect_status(1);
+ 	}
+ 
+ 	if (n & STS_SLI)
+@@ -776,29 +782,6 @@ static irqreturn_t usb_interrupt(int irq, void *data)
+ 	return IRQ_HANDLED;
+ }
+ 
+-static void usb_prepare(struct usb_info *ui)
+-{
+-	spin_lock_init(&ui->lock);
+-
+-	memset(ui->buf, 0, 4096);
+-	ui->head = (void *) (ui->buf + 0);
+-
+-	/* only important for reset/reinit */
+-	memset(ui->ept, 0, sizeof(ui->ept));
+-	ui->next_item = 0;
+-	ui->next_ifc_num = 0;
+-
+-	init_endpoints(ui);
+-
+-	ui->ep0in.ep.maxpacket = 64;
+-	ui->ep0out.ep.maxpacket = 64;
+-
+-	ui->setup_req =
+-		usb_ept_alloc_req(&ui->ep0in, SETUP_BUF_SIZE, GFP_KERNEL);
+-
+-	INIT_WORK(&ui->work, usb_do_work);
+-}
+-
+ static void usb_suspend_phy(struct usb_info *ui)
+ {
+ 	/* clear VBusValid and SessionEnd rising interrupts */
+@@ -835,8 +818,8 @@ static void usb_reset(struct usb_info *ui)
+ 	if (ui->phy_reset)
+ 		ui->phy_reset();
+ 
+-	/* INCR4 BURST mode */
+-	writel(0x01, USB_SBUSCFG);
++        /* INCR8 BURST mode */
++        writel(0x02, USB_SBUSCFG);      /*boost performance to fix CRC error.*/
+ 
+ 	/* select DEVICE mode */
+ 	writel(0x12, USB_USBMODE);
+@@ -874,36 +857,31 @@ static void usb_reset(struct usb_info *ui)
+ 	spin_unlock_irqrestore(&ui->lock, flags);
+ }
+ 
+-static void usb_start(struct usb_info *ui)
++static void usb_do_work_start(struct usb_info *ui)
+ {
+ 	unsigned long flags;
+ 
+ 	spin_lock_irqsave(&ui->lock, flags);
+-	ui->flags |= USB_FLAG_START;
+-	schedule_work(&ui->work);
++	if (!(ui->flags & USB_FLAG_SHUTDOWN)) {
++		ui->flags |= USB_FLAG_START;
++		schedule_work(&ui->work);
++	}
+ 	spin_unlock_irqrestore(&ui->lock, flags);
+ }
+ 
+ static struct usb_info *the_usb_info;
+ 
+-static int usb_free(struct usb_info *ui, int ret)
++static void usb_do_work_stop(struct usb_info *ui)
+ {
+-	INFO("usb_free(%d)\n", ret);
++	unsigned long flags;
+ 
+-	if (ui->irq)
+-		free_irq(ui->irq, 0);
+-	if (ui->pool)
+-		dma_pool_destroy(ui->pool);
+-	if (ui->dma)
+-		dma_free_coherent(&ui->pdev->dev, 4096, ui->buf, ui->dma);
+-	if (ui->addr)
+-		iounmap(ui->addr);
+-	if (ui->clk)
+-		clk_put(ui->clk);
+-	if (ui->pclk)
+-		clk_put(ui->pclk);
+-	kfree(ui);
+-	return ret;
++	spin_lock_irqsave(&ui->lock, flags);
++	ui->flags |= USB_FLAG_SHUTDOWN;
++	spin_unlock_irqrestore(&ui->lock, flags);
++
++	// FIXME: wait for it to shutdown?
++//	while(ui->state != USB_STATEg865_SHUTDOWN)
++//		mdelay(1);
+ }
+ 
+ static void usb_do_work_check_vbus(struct usb_info *ui)
+@@ -932,7 +910,7 @@ static void usb_do_work(struct work_struct *w)
+ 		spin_unlock_irqrestore(&ui->lock, iflags);
+ 
+ 		/* give up if we have nothing to do */
+-		if (flags == 0)
++		if ((flags == 0) || (flags & USB_FLAG_SHUTDOWN))
+ 			break;
+ 
+ 		switch (ui->state) {
+@@ -956,6 +934,10 @@ static void usb_do_work(struct work_struct *w)
+ 
+ 				/* synchronize with irq context */
+ 				spin_lock_irqsave(&ui->lock, iflags);
++
++				if (msm_usb_get_connect_status() == 1)
++					msm_usb_set_connect_status(0);
++
+ 				ui->running = 0;
+ 				ui->online = 0;
+ 				msm72k_pullup(&ui->gadget, 0);
+@@ -1009,14 +991,15 @@ static void usb_do_work(struct work_struct *w)
+  * This is called from htc_battery.c and board-halibut.c
+  * WARNING - this can get called before this driver is initialized.
+  */
+-void msm_hsusb_set_vbus_state(int online)
++static void usb_set_vbus_state(int online)
+ {
+ 	unsigned long flags;
+ 	struct usb_info *ui = the_usb_info;
+ 
+ 	if (ui) {
+ 		spin_lock_irqsave(&ui->lock, flags);
+-		if (vbus != online) {
++
++		if ((vbus != online) && (!(ui->flags & USB_FLAG_SHUTDOWN))) {
+ 			vbus = online;
+ 			if (online)
+ 				ui->flags |= USB_FLAG_VBUS_ONLINE;
+@@ -1033,10 +1016,8 @@ void msm_hsusb_set_vbus_state(int online)
+ 
+ #if defined(CONFIG_DEBUG_FS)
+ 
+-void usb_function_reenumerate(void)
++void usb_function_reenumerate(struct usb_info *ui)
+ {
+-	struct usb_info *ui = the_usb_info;
+-
+ 	/* disable and re-enable the D+ pullup */
+ 	INFO("msm72k_udc: disable pullup\n");
+ 	writel(0x00080000, USB_USBCMD);
+@@ -1121,7 +1102,9 @@ static ssize_t debug_write_reset(struct file *file, const char __user *buf,
+ static ssize_t debug_write_cycle(struct file *file, const char __user *buf,
+ 				 size_t count, loff_t *ppos)
+ {
+-	usb_function_reenumerate();
++	struct usb_info *ui = file->private_data;
++
++	usb_function_reenumerate(ui);
+ 	return count;
+ }
+ 
+@@ -1148,17 +1131,25 @@ const struct file_operations debug_cycle_ops = {
+ 
+ static void usb_debugfs_init(struct usb_info *ui)
+ {
+-	struct dentry *dent;
+-	dent = debugfs_create_dir("usb", 0);
+-	if (IS_ERR(dent))
++	ui->dent = debugfs_create_dir("usb", 0);
++	if (IS_ERR(ui->dent)) {
++		ui->dent = NULL;
+ 		return;
++	}
+ 
+-	debugfs_create_file("status", 0444, dent, ui, &debug_stat_ops);
+-	debugfs_create_file("reset", 0222, dent, ui, &debug_reset_ops);
+-	debugfs_create_file("cycle", 0222, dent, ui, &debug_cycle_ops);
++	debugfs_create_file("status", 0444, ui->dent, ui, &debug_stat_ops);
++	debugfs_create_file("reset", 0222, ui->dent, ui, &debug_reset_ops);
++	debugfs_create_file("cycle", 0222, ui->dent, ui, &debug_cycle_ops);
++}
++
++static void usb_debugfs_shutdown(struct usb_info *ui)
++{
++	if (ui->dent)
++		debugfs_remove_recursive(ui->dent);
+ }
+ #else
+ static void usb_debugfs_init(struct usb_info *ui) {}
++static void usb_debugfs_shutdown(struct usb_info *ui) {}
+ #endif
+ 
+ static int
+@@ -1311,7 +1302,7 @@ static int msm72k_get_frame(struct usb_gadget *_gadget)
+ /* VBUS reporting logically comes from a transceiver */
+ static int msm72k_udc_vbus_session(struct usb_gadget *_gadget, int is_active)
+ {
+-	msm_hsusb_set_vbus_state(is_active);
++	usb_set_vbus_state(is_active);
+ 	return 0;
+ }
+ 
+@@ -1335,16 +1326,69 @@ static const struct usb_gadget_ops msm72k_ops = {
+ 	.pullup		= msm72k_pullup,
+ };
+ 
+-static ssize_t usb_remote_wakeup(struct device *dev,
+-		struct device_attribute *attr, const char *buf, size_t count)
++static int msm72k_remove(struct platform_device *pdev)
+ {
+-	struct usb_info *ui = the_usb_info;
++	struct usb_info *ui = platform_get_drvdata(pdev);
+ 
+-	msm72k_wakeup(&ui->gadget);
++	printk("REMOVE0\n");
++	msm_hsusb_set_vbus_state_notifier(NULL);
++	printk("REMOVE1\n");
++	usb_do_work_stop(ui);
+ 
+-	return count;
++	printk("REMOVE2\n");
++
++	// FIXME: hangs here
++	writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
++	writel(readl(USB_ENDPTCOMPLETE), USB_ENDPTCOMPLETE);
++	writel(0xffffffff, USB_ENDPTFLUSH);
++	writel(0, USB_ENDPTCTRL(1));
++
++	if (ui->online != 0) {
++		flush_all_endpoints(ui);
++		ui->online = 0;
++	}
++	
++	printk("REMOVE3X\n");
++
++	if (ui->driver) {
++		printk(KERN_INFO "usb: notify offline\n");
++		ui->driver->disconnect(&ui->gadget);
++	}
++
++	printk("REMOVE3\n");
++
++	/* reset the controller */
++	writel(2, USB_USBCMD);
++	msleep(10);
++
++	printk("REMOVE4\n");
++
++	if (ui->phy_shutdown)
++		ui->phy_shutdown();
++	if (ui->setup_req)
++		do_free_req(ui, to_msm_request(ui->setup_req));
++	if (ui->irq)
++		free_irq(ui->irq, ui);
++	if (ui->pool)
++		dma_pool_destroy(ui->pool);
++	if (ui->dma)
++		dma_free_coherent(&ui->pdev->dev, 4096, ui->buf, ui->dma);
++	if (ui->addr)
++		iounmap(ui->addr);
++	if (ui->clk)
++		clk_put(ui->clk);
++	if (ui->pclk)
++		clk_put(ui->pclk);
++
++	printk("REMOVE5\n");
++	
++	usb_debugfs_shutdown(ui);
++
++	printk("REMOVE6\n");
++
++	kfree(ui);
++	return 0;
+ }
+-static DEVICE_ATTR(wakeup, S_IWUSR, 0, usb_remote_wakeup);
+ 
+ static int msm72k_probe(struct platform_device *pdev)
+ {
+@@ -1352,66 +1396,114 @@ static int msm72k_probe(struct platform_device *pdev)
+ 	struct usb_info *ui;
+ 	int irq;
+ 	int ret;
+-
++	
+ 	INFO("msm72k_probe\n");
+ 	ui = kzalloc(sizeof(struct usb_info), GFP_KERNEL);
+-	if (!ui)
++	if (!ui) {
++		dev_dbg(&pdev->dev, "usb_info alloc failed\n");
+ 		return -ENOMEM;
++	}
+ 
+ 	ui->pdev = pdev;
++	platform_set_drvdata(pdev, ui);
++	the_usb_info = ui;
+ 
+ 	if (pdev->dev.platform_data) {
+ 		struct msm_hsusb_platform_data *pdata = pdev->dev.platform_data;
+ 		ui->phy_reset = pdata->phy_reset;
++		ui->phy_shutdown = pdata->phy_shutdown;
+ 		ui->phy_init_seq = pdata->phy_init_seq;
+ 	}
+ 
+ 	irq = platform_get_irq(pdev, 0);
+ 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+-	if (!res || (irq < 0))
+-		return usb_free(ui, -ENODEV);
+-
++	if (!res || (irq < 0)) {
++		dev_dbg(&pdev->dev, "failed to get platform resources\n");
++		msm72k_remove(pdev);
++		return -ENODEV;
++	}
++	
+ 	ui->addr = ioremap(res->start, 4096);
+-	if (!ui->addr)
+-		return usb_free(ui, -ENOMEM);
+-
++	if (!ui->addr) {
++		dev_dbg(&pdev->dev, "failed to map memory\n");
++		msm72k_remove(pdev);
++		return -ENOMEM;
++	}
++	
+ 	ui->buf = dma_alloc_coherent(&pdev->dev, 4096, &ui->dma, GFP_KERNEL);
+-	if (!ui->buf)
+-		return usb_free(ui, -ENOMEM);
++	if (!ui->buf) {
++		dev_dbg(&pdev->dev, "failed alloc buffer\n");
++		msm72k_remove(pdev);
++		return -ENOMEM;
++	}
+ 
+ 	ui->pool = dma_pool_create("msm72k_udc", NULL, 32, 32, 0);
+-	if (!ui->pool)
+-		return usb_free(ui, -ENOMEM);
+-
++	if (!ui->pool) {
++		dev_dbg(&pdev->dev, "failed to create DMA pool\n");
++		msm72k_remove(pdev);
++		return -ENOMEM;
++	}
++	
+ 	INFO("msm72k_probe() io=%p, irq=%d, dma=%p(%x)\n",
+ 	       ui->addr, irq, ui->buf, ui->dma);
+ 
+ 	ui->clk = clk_get(&pdev->dev, "usb_hs_clk");
+-	if (IS_ERR(ui->clk))
+-		return usb_free(ui, PTR_ERR(ui->clk));
++	if (IS_ERR(ui->clk)) {
++		dev_dbg(&pdev->dev, "failed to get usb_hs_clk\n");
++		msm72k_remove(pdev);
++		return PTR_ERR(ui->clk);
++	}
+ 
+ 	ui->pclk = clk_get(&pdev->dev, "usb_hs_pclk");
+-	if (IS_ERR(ui->pclk))
+-		return usb_free(ui, PTR_ERR(ui->pclk));
++	if (IS_ERR(ui->pclk)) {
++		dev_dbg(&pdev->dev, "failed to get usb_hs_pclk\n");
++		msm72k_remove(pdev);
++		return PTR_ERR(ui->pclk);
++	}
+ 
+ 	ret = request_irq(irq, usb_interrupt, 0, pdev->name, ui);
+-	if (ret)
+-		return usb_free(ui, ret);
++	if (ret) {
++		dev_dbg(&pdev->dev, "failed to acquire IRQ\n");
++		msm72k_remove(pdev);
++		return ret;
++	}
+ 	enable_irq_wake(irq);
+ 	ui->irq = irq;
+-
++	
+ 	ui->gadget.ops = &msm72k_ops;
+ 	ui->gadget.is_dualspeed = 1;
+ 	device_initialize(&ui->gadget.dev);
+ 	strcpy(ui->gadget.dev.bus_id, "gadget");
+ 	ui->gadget.dev.parent = &pdev->dev;
+ 	ui->gadget.dev.dma_mask = pdev->dev.dma_mask;
++	
++	spin_lock_init(&ui->lock);
+ 
+-	the_usb_info = ui;
++	memset(ui->buf, 0, 4096);
++	ui->head = (void *) (ui->buf + 0);
+ 
+-	usb_debugfs_init(ui);
++	/* only important for reset/reinit */
++	memset(ui->ept, 0, sizeof(ui->ept));
++	ui->next_item = 0;
++	ui->next_ifc_num = 0;
++	
++	init_endpoints(ui);
++
++	ui->ep0in.ep.maxpacket = 64;
++	ui->ep0out.ep.maxpacket = 64;
+ 
+-	usb_prepare(ui);
++	ui->setup_req =
++		usb_ept_alloc_req(&ui->ep0in, SETUP_BUF_SIZE, GFP_KERNEL);
++	if (!ui->setup_req) {
++		dev_dbg(&pdev->dev, "failed to alloc setup_req space\n");
++		msm72k_remove(pdev);
++		return -ENOMEM;		
++	}
++
++	INIT_WORK(&ui->work, usb_do_work);
++
++	usb_debugfs_init(ui);
++	msm_hsusb_set_vbus_state_notifier(&usb_set_vbus_state);
+ 
+ 	return 0;
+ }
+@@ -1464,14 +1556,9 @@ int usb_gadget_register_driver(struct usb_gadget_driver *driver)
+ 		goto fail;
+ 	}
+ 
+-	/* create sysfs node for remote wakeup */
+-	retval = device_create_file(&ui->gadget.dev, &dev_attr_wakeup);
+-	if (retval != 0)
+-		INFO("failed to create sysfs entry: (wakeup) error: (%d)\n",
+-					retval);
+ 	INFO("msm72k_udc: registered gadget driver '%s'\n",
+ 			driver->driver.name);
+-	usb_start(ui);
++	usb_do_work_start(ui);
+ 
+ 	return 0;
+ 
+@@ -1491,7 +1578,6 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
+ 	if (!driver || driver != dev->driver || !driver->unbind)
+ 		return -EINVAL;
+ 
+-	device_remove_file(&dev->gadget.dev, &dev_attr_wakeup);
+ 	driver->unbind(&dev->gadget);
+ 	dev->gadget.dev.driver = NULL;
+ 	dev->driver = NULL;
+@@ -1506,6 +1592,7 @@ EXPORT_SYMBOL(usb_gadget_unregister_driver);
+ 
+ static struct platform_driver usb_driver = {
+ 	.probe = msm72k_probe,
++	.remove = msm72k_remove,
+ 	.driver = { .name = "msm_hsusb", },
+ };
+ 
+diff --git a/drivers/usb/host/Kconfig b/drivers/usb/host/Kconfig
+index 228797e..caed838 100644
+--- a/drivers/usb/host/Kconfig
++++ b/drivers/usb/host/Kconfig
+@@ -88,6 +88,13 @@ config USB_EHCI_FSL
+ 	---help---
+ 	  Variation of ARC USB block used in some Freescale chips.
+ 
++config USB_EHCI_MSM7201
++	bool "Support for Qualcomm MSM7201 on-chip EHCI USB controller"
++	depends on USB_EHCI_HCD && (ARCH_MSM7XXX || ARCH_MSM || ARCH_MSM7X00A) && (!USB_FUNCTION)
++	select USB_EHCI_ROOT_HUB_TT
++	---help---
++	  Variation of ARC USB block used in Qualcomm MSM7201 chips.
++
+ config USB_EHCI_HCD_PPC_OF
+ 	bool "EHCI support for PPC USB controller on OF platform bus"
+ 	depends on USB_EHCI_HCD && PPC_OF
+diff --git a/drivers/usb/host/ehci-hcd.c b/drivers/usb/host/ehci-hcd.c
+index 8409e07..47be567 100644
+--- a/drivers/usb/host/ehci-hcd.c
++++ b/drivers/usb/host/ehci-hcd.c
+@@ -1040,6 +1040,11 @@ MODULE_LICENSE ("GPL");
+ #define	PLATFORM_DRIVER		ixp4xx_ehci_driver
+ #endif
+ 
++#if defined(CONFIG_ARCH_MSM7XXX) || defined(CONFIG_ARCH_MSM) || defined(ARCH_MSM7X00A)
++#include "ehci-msm7201.c"
++#define	PLATFORM_DRIVER		ehci_msm7201_driver
++#endif
++
+ #if !defined(PCI_DRIVER) && !defined(PLATFORM_DRIVER) && \
+     !defined(PS3_SYSTEM_BUS_DRIVER) && !defined(OF_PLATFORM_DRIVER)
+ #error "missing bus glue for ehci-hcd"
+diff --git a/drivers/usb/host/ehci-msm7201.c b/drivers/usb/host/ehci-msm7201.c
+new file mode 100644
+index 0000000..4e6fe78
+--- /dev/null
++++ b/drivers/usb/host/ehci-msm7201.c
+@@ -0,0 +1,319 @@
++/*
++ * Copyright (c) 2010 Andrew de Quincey
++ *
++ * (heavily) based on ehci-fsl.c, which is:
++ * 
++ * Copyright (c) 2005 MontaVista Software
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation; either version 2 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++ * for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ *
++ * Ported to 834x by Randy Vinson <rvinson@mvista.com> using code provided
++ * by Hunter Wu.
++ */
++
++#include <linux/platform_device.h>
++#include <linux/clk.h>
++#include <mach/msm_hsusb.h>
++
++#include "ehci-msm7201.h"
++
++static void ulpi_write(struct usb_hcd *hcd, unsigned val, unsigned reg)
++{
++	unsigned timeout = 10000;
++
++	/* initiate write operation */
++	writel(ULPI_RUN | ULPI_WRITE |
++	       ULPI_ADDR(reg) | ULPI_DATA(val),
++	       USB_ULPI_VIEWPORT);
++
++	/* wait for completion */
++	while ((readl(USB_ULPI_VIEWPORT) & ULPI_RUN) && (--timeout)) ;
++
++	if (timeout == 0)
++		printk(KERN_WARNING "%s: timeout: reg: 0x%X, var: 0x%X\n",
++		__func__, reg, val);
++}
++
++static void msm7201_setup_phy(struct usb_hcd *hcd)
++{
++	struct msm7201_usb_priv *msm7201 = hcd_to_msm7201(hcd);
++
++  	int *seq = msm7201->phy_init_seq;
++
++	if (!seq)
++		return;
++
++	while (seq[0] >= 0) {
++		ulpi_write(hcd, seq[0], seq[1]);
++		seq += 2;
++	}
++}
++
++static void msm7201_shutdown_phy(struct usb_hcd *hcd)
++{
++	struct msm7201_usb_priv *msm7201 = hcd_to_msm7201(hcd);
++
++	if (msm7201->phy_shutdown)
++		msm7201->phy_shutdown();
++	
++	/* disable interface protect circuit to drop current consumption */
++	ulpi_write(hcd, (1 << 7), 0x08);
++	/* clear the SuspendM bit -> suspend the PHY */
++	ulpi_write(hcd, 1 << 6, 0x06);
++}
++
++static void msm7201_usb_setup(struct usb_hcd *hcd)
++{
++	struct msm7201_usb_priv *msm7201 = hcd_to_msm7201(hcd);
++	int i;
++
++	/* INCR8 BURST mode */
++	writel(0x02, USB_SBUSCFG);	/*boost performance to fix CRC error.*/
++
++	/* select ULPI phy */
++	writel(0x80000000, USB_PORTSC);
++
++	if (msm7201->phy_reset)
++		msm7201->phy_reset();
++	msm7201_setup_phy(hcd);
++}
++
++/* called after powerup, by probe or system-pm "wakeup" */
++static int ehci_msm7201_reinit(struct ehci_hcd *ehci)
++{
++	msm7201_usb_setup(ehci_to_hcd(ehci));
++	ehci_port_power(ehci, 0);
++
++	return 0;
++}
++
++/* called during probe() after chip reset completes */
++static int ehci_msm7201_setup(struct usb_hcd *hcd)
++{
++	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
++	int retval;
++
++	/* EHCI registers start at offset 0x100 */
++	ehci->caps = hcd->regs + 0x100;
++	ehci->regs = hcd->regs + 0x100 +
++	    HC_LENGTH(ehci_readl(ehci, &ehci->caps->hc_capbase));
++
++	/* configure other settings */
++	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
++	hcd->has_tt = 1;
++	ehci->sbrn = 0x20;
++
++	/* reset and halt controller */
++	ehci_reset(ehci);
++	retval = ehci_halt(ehci);
++	if (retval)
++		return retval;
++
++	/* data structure init */
++	retval = ehci_init(hcd);
++	if (retval)
++		return retval;
++        
++	ehci_reset(ehci);
++
++	retval = ehci_msm7201_reinit(ehci);
++	return retval;
++}
++
++static const struct hc_driver ehci_msm7201_hc_driver = {
++	.description = hcd_name,
++	.product_desc = "Qualcomm MSM7201 On-Chip EHCI Host Controller",
++	.hcd_priv_size = sizeof(struct ehci_hcd) + sizeof(struct msm7201_usb_priv),
++
++	/*
++	 * generic hardware linkage
++	 */
++	.irq = ehci_irq,
++	.flags = HCD_USB2 | HCD_MEMORY | HCD_LOCAL_MEM,
++
++	/*
++	 * basic lifecycle operations
++	 */
++	.reset = ehci_msm7201_setup,
++	.start = ehci_run,
++	.stop = ehci_stop,
++	.shutdown = ehci_shutdown,
++
++	/*
++	 * managing i/o requests and associated device resources
++	 */
++	.urb_enqueue = ehci_urb_enqueue,
++	.urb_dequeue = ehci_urb_dequeue,
++	.endpoint_disable = ehci_endpoint_disable,
++
++	/*
++	 * scheduling support
++	 */
++	.get_frame_number = ehci_get_frame,
++
++	/*
++	 * root hub support
++	 */
++	.hub_status_data = ehci_hub_status_data,
++	.hub_control = ehci_hub_control,
++	.bus_suspend = ehci_bus_suspend,
++	.bus_resume = ehci_bus_resume,
++	.relinquish_port = ehci_relinquish_port,
++	.port_handed_over = ehci_port_handed_over,
++};
++
++/**
++ * usb_hcd_msm7201_remove - shutdown processing for MSM7201-based HCDs
++ * @pdev: USB Host Controller being removed
++ * Context: !in_interrupt()
++ *
++ * Reverses the effect of usb_hcd_msm7201_probe().
++ *
++ */
++static int usb_hcd_msm7201_remove(struct platform_device *pdev)
++{
++	struct usb_hcd *hcd = platform_get_drvdata(pdev);
++	struct msm7201_usb_priv *msm7201 = hcd_to_msm7201(hcd);
++
++	usb_remove_hcd(hcd);
++	msm7201_shutdown_phy(hcd);
++	clk_put(msm7201->clk);
++	clk_put(msm7201->pclk);
++	iounmap(hcd->regs);
++	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
++	usb_put_hcd(hcd);
++	
++	return 0;
++}
++
++/**
++ * usb_hcd_msm7201_probe - initialize MSM7201-based HCDs
++ * @pdev: USB Host Controller being probed
++ * Context: !in_interrupt()
++ *
++ * Allocates basic resources for this USB host controller.
++ *
++ */
++static int usb_hcd_msm7201_probe(struct platform_device *pdev)
++{
++	struct usb_hcd *hcd;
++	struct resource *res;
++	struct msm7201_usb_priv *msm7201;
++	int irq;
++	int retval;
++	const struct hc_driver *driver = &ehci_msm7201_hc_driver;
++	struct msm_hsusb_platform_data *pdata = pdev->dev.platform_data;
++
++	if (usb_disabled())
++		return -ENODEV;
++
++	pr_debug("initializing MSM7201 USB Controller\n");
++
++	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
++	if (!res) {
++		dev_err(&pdev->dev,
++			"Found HC with no IRQ. Check %s setup!\n",
++			dev_name(&pdev->dev));
++		return -ENODEV;
++	}
++	irq = res->start;
++
++	hcd = usb_create_hcd(driver, &pdev->dev, dev_name(&pdev->dev));
++	if (!hcd) {
++		retval = -ENOMEM;
++		goto err1;
++	}
++	
++	msm7201 = hcd_to_msm7201(hcd);
++	if (pdata) {
++		msm7201->phy_reset = pdata->phy_reset;
++		msm7201->phy_shutdown = pdata->phy_shutdown;
++		msm7201->phy_init_seq = pdata->phy_init_seq;
++	}
++	
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res) {
++		dev_err(&pdev->dev,
++			"Found HC with no register addr. Check %s setup!\n",
++			dev_name(&pdev->dev));
++		retval = -ENODEV;
++		goto err2;
++	}
++	hcd->rsrc_start = res->start;
++	hcd->rsrc_len = res->end - res->start + 1;
++	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len,
++				driver->description)) {
++		dev_dbg(&pdev->dev, "controller already in use\n");
++		retval = -EBUSY;
++		goto err2;
++	}
++	hcd->regs = ioremap(hcd->rsrc_start, hcd->rsrc_len);
++
++	if (hcd->regs == NULL) {
++		dev_dbg(&pdev->dev, "error mapping memory\n");
++		retval = -EFAULT;
++		goto err3;
++	}
++	
++	msm7201->clk = clk_get(&pdev->dev, "usb_hs_clk");
++	if (IS_ERR(msm7201->clk)) {
++		dev_dbg(&pdev->dev, "error getting usb_hs_clk\n");
++		retval = -EFAULT;
++		goto err4;	  
++	}
++
++	msm7201->pclk = clk_get(&pdev->dev, "usb_hs_pclk");
++	if (IS_ERR(msm7201->pclk)) {
++		dev_dbg(&pdev->dev, "error getting usb_hs_pclk\n");
++		retval = -EFAULT;
++		goto err5;	  
++	}
++
++        clk_enable(msm7201->clk);
++        clk_enable(msm7201->pclk);
++
++        /* wait for a while after enable usb clk*/
++        msleep(5);
++
++	retval = usb_add_hcd(hcd, irq, IRQF_DISABLED | IRQF_SHARED);
++	if (retval != 0)
++		goto err6;
++	return retval;
++
++      err6:
++	clk_put(msm7201->pclk);
++      err5:
++	clk_put(msm7201->clk);
++      err4:
++	iounmap(hcd->regs);	
++      err3:
++	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
++      err2:
++	usb_put_hcd(hcd);
++      err1:
++	dev_err(&pdev->dev, "init %s fail, %d\n", dev_name(&pdev->dev), retval);
++	return retval;
++}
++
++MODULE_ALIAS("platform:msm_hsusb");
++
++static struct platform_driver ehci_msm7201_driver = {
++	.probe = usb_hcd_msm7201_probe,
++	.remove = usb_hcd_msm7201_remove,
++	.shutdown = usb_hcd_platform_shutdown,
++	.driver = {
++		   .name = "msm_hsusb",
++	},
++};
+diff --git a/drivers/usb/host/ehci-msm7201.h b/drivers/usb/host/ehci-msm7201.h
+new file mode 100644
+index 0000000..b1f67e8
+--- /dev/null
++++ b/drivers/usb/host/ehci-msm7201.h
+@@ -0,0 +1,88 @@
++/* 
++ * Copyright (c) 2010 Andrew de Quincey
++ *
++ * This program is free software; you can redistribute  it and/or modify it
++ * under  the terms of  the GNU General  Public License as published by the
++ * Free Software Foundation;  either version 2 of the  License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the  GNU General Public License along
++ * with this program; if not, write  to the Free Software Foundation, Inc.,
++ * 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++#ifndef _EHCI_MSM7201_H
++#define _EHCI_MSM7201_H
++
++struct msm7201_usb_priv 
++{
++	struct clk *clk;
++	struct clk *pclk;
++
++	int *phy_init_seq;
++	void (*phy_reset)(void);
++	void (*phy_shutdown)(void);
++};
++
++static inline struct msm7201_usb_priv *hcd_to_msm7201(struct usb_hcd *hcd)
++{
++	return (struct msm7201_usb_priv *) (((unsigned char*) (hcd->hcd_priv)) + sizeof(struct ehci_hcd));
++}
++
++#define MSM_USB_BASE	     ((unsigned) hcd->regs)
++
++#define USB_ID               (MSM_USB_BASE + 0x0000)
++#define USB_HWGENERAL        (MSM_USB_BASE + 0x0004)
++#define USB_HWHOST           (MSM_USB_BASE + 0x0008)
++#define USB_HWDEVICE         (MSM_USB_BASE + 0x000C)
++#define USB_HWTXBUF          (MSM_USB_BASE + 0x0010)
++#define USB_HWRXBUF          (MSM_USB_BASE + 0x0014)
++#define USB_SBUSCFG          (MSM_USB_BASE + 0x0090)
++
++#define USB_CAPLENGTH        (MSM_USB_BASE + 0x0100) /* 8 bit */
++#define USB_HCIVERSION       (MSM_USB_BASE + 0x0102) /* 16 bit */
++#define USB_HCSPARAMS        (MSM_USB_BASE + 0x0104)
++#define USB_HCCPARAMS        (MSM_USB_BASE + 0x0108)
++#define USB_DCIVERSION       (MSM_USB_BASE + 0x0120) /* 16 bit */
++#define USB_USBCMD           (MSM_USB_BASE + 0x0140)
++#define USB_USBSTS           (MSM_USB_BASE + 0x0144)
++#define USB_USBINTR          (MSM_USB_BASE + 0x0148)
++#define USB_FRINDEX          (MSM_USB_BASE + 0x014C)
++#define USB_DEVICEADDR       (MSM_USB_BASE + 0x0154)
++#define USB_ENDPOINTLISTADDR (MSM_USB_BASE + 0x0158)
++#define USB_BURSTSIZE        (MSM_USB_BASE + 0x0160)
++#define USB_TXFILLTUNING     (MSM_USB_BASE + 0x0164)
++#define USB_ULPI_VIEWPORT    (MSM_USB_BASE + 0x0170)
++#define USB_ENDPTNAK         (MSM_USB_BASE + 0x0178)
++#define USB_ENDPTNAKEN       (MSM_USB_BASE + 0x017C)
++#define USB_PORTSC           (MSM_USB_BASE + 0x0184)
++#define USB_OTGSC            (MSM_USB_BASE + 0x01A4)
++#define USB_USBMODE          (MSM_USB_BASE + 0x01A8)
++#define USB_ENDPTSETUPSTAT   (MSM_USB_BASE + 0x01AC)
++#define USB_ENDPTPRIME       (MSM_USB_BASE + 0x01B0)
++#define USB_ENDPTFLUSH       (MSM_USB_BASE + 0x01B4)
++#define USB_ENDPTSTAT        (MSM_USB_BASE + 0x01B8)
++#define USB_ENDPTCOMPLETE    (MSM_USB_BASE + 0x01BC)
++#define USB_ENDPTCTRL(n)     (MSM_USB_BASE + 0x01C0 + (4 * (n)))
++
++#define USBCMD_RESET   2
++#define USBCMD_ATTACH  1
++#define USBCMD_ATDTW   (1 << 14)
++
++#define USBMODE_DEVICE 2
++#define USBMODE_HOST   3
++
++#define ULPI_WAKEUP           (1 << 31)
++#define ULPI_RUN              (1 << 30)
++#define ULPI_WRITE            (1 << 29)
++#define ULPI_READ             (0 << 29)
++#define ULPI_STATE_NORMAL     (1 << 27)
++#define ULPI_ADDR(n)          (((n) & 255) << 16)
++#define ULPI_DATA(n)          ((n) & 255)
++#define ULPI_DATA_READ(n)     (((n) >> 8) & 255)
++
++#endif				/* _EHCI_MSM7201_H */
