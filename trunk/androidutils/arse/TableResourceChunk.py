@@ -191,9 +191,11 @@ class TableTypeChunk:
         (self.typeId, res0, res1, entryCount, entriesStart) = struct.unpack("<BBHII", rawChunk.Header[0:12])
         entriesStart -= len(rawChunk.Header) + 8
 
+        # FIXME:this has changed length!        
+
         (size, self.mcc, self.mnc, self.language, self.country, self.orientation, self.touchscreen, 
          self.density, self.keyboard, self.navigation, self.inputFlags, pad0, self.screenWidth, 
-         self.screenHeight, self.sdkVersion, self.minorVersion) = struct.unpack("<IHH2s2sBBHBBBBHHHH", rawChunk.Header[12:])
+         self.screenHeight, self.sdkVersion, self.minorVersion) = struct.unpack("<IHH2s2sBBHBBBBHHHH", rawChunk.Header[12:40])
         self.language = self.language.replace('\0', '')
         self.country = self.country.replace('\0', '')
 
