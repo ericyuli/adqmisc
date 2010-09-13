@@ -147,7 +147,7 @@ class PanoramaMetadata:
 		for i in xrange(0, numPlanes - 1):
 			(d, nx, ny, nz) = struct.unpack('<ffff', raw[pos:pos+16])
 
-			self.DepthMapPlanes.append({ 'd': d, 'nx': nx, 'ny': ny, 'nz': nz })
+			self.DepthMapPlanes.append({ 'd': d, 'nx': nx, 'ny': ny, 'nz': nz }) # nx/ny/nz = unit normal, d = distance from origin
 			pos += 16
 
 	def __str__(self):
