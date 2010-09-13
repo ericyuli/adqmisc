@@ -126,9 +126,9 @@ class PanoramaMetadata:
 			pos += 22
 			
 		for i in xrange(0, numPanos - 1):
-			(lat, lon) = struct.unpack('<ff', raw[pos:pos+8])
-			self.PanoMapPanos[i]['lat'] = lat # FIXME: not sure what these are - don't think they're geo lat/lon though!
-			self.PanoMapPanos[i]['lon'] = lon
+			(x, y) = struct.unpack('<ff', raw[pos:pos+8])
+			self.PanoMapPanos[i]['x'] = x
+			self.PanoMapPanos[i]['y'] = y
 			pos+=8
 
 	def DecodeDepthMap(self, raw):
@@ -158,11 +158,6 @@ class PanoramaMetadata:
 			
 			tmp += "%s: %s\n" % x
 		return tmp
-
-
-#pano = GetPanoramaMetadata('3o1v5CkjAaVWjZdjPRpFmw')
-#print pano.Lat
-#print pano.Lon
 
 pano = GetPanoramaMetadata(lat=27.683528, lon=-99.580078)
 print pano.PanoId
