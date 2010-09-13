@@ -9,43 +9,55 @@ import zlib
 import base64
 import struct
 
-# Panorama meta parameters
-# Other Parameters: review=1  		# review  (?)
-# 	            ph=1 		# lookaround
-# 	            tr=1		# video
-# 	            renderer=cubic,spherical
-#                   dm=1 		# Unknown
-#		    pm=1 		# Unknown
-# 		    ll=<lat>,<lon> 	# lat,lon to find panorama for
-#		    radius=<value> 	# search radius for lat/lon->panoid 
-#                   output=xml  	# Output metadata xml
-#                   v=4			# version?
-#		    panoid=<value>	# panorama id
-
 
 BaseUri = 'http://maps.google.com/cbk';
 
-def FindPano(lat, lon, radius):
-	uri = '%s?output=xml&v=4&ll=%s,%s&radius=%s' % (BaseUri, lat, lon, radius)
-	f = urllib2.urlopen(uri)
-	findpanoxml = f.read()
-	f.close()
+# panoid is the value from panorama metadata
+# OR: supply lat/lon/radius to find the nearest pano to lat/lon within radius
+def GetPanoramaMetadata(panoid = None, lat = None, lon = None, radius = 2000):
+	url =  '%s?'
+	url += 'output=xml'			# metadata output
+	url += '&v=4'				# version
+	url += '&dm=1'				# include depth map
+	url += '&pm=1'				# include pano map
+	if panoid == None:
+		url += '&ll=%s,%s'		# lat/lon to search at
+		url += '&radius=%s'		# search radius
+		url = url % (BaseUri, lat, lon, radius)
+	else:
+		url += '&panoid=%s'		# panoid to retrieve
+		url = url % (BaseUri, panoid)
+	
+	findpanoxml = GetUrlContents(url)
 	if not findpanoxml.find('data_properties'):
 		return None
-	return Panorama(libxml2.parseDoc(findpanoxml))
+	return PanoramaMetadata(libxml2.parseDoc(findpanoxml))
 
-def GetPanoMetadata(panoId):
-	uri = '%s?output=xml&v=4&dm=1&pm=1&ph=1&panoid=%s' % (BaseUri, panoId)
-	f = urllib2.urlopen(uri)
-	findpanoxml = f.read()
+# panoid is the value from the panorama metadata
+# zoom range is 0->NumZoomLevels inclusively
+# x/y range is 0->?
+def GetPanoramaTile(panoid, zoom, x, y):
+	url =  '%s?'
+	url += 'output=tile'			# tile output
+	url += '&panoid=%s'			# panoid to retrieve
+	url += '&zoom=%s'			# zoom level of tile
+	url += '&x=%i'				# x position of tile
+	url += '&y=%i'				# y position of tile
+	url += '&fover=2'			# ???
+	url += '&onerr=3'			# ???
+	url += '&renderer=spherical'		# standard speherical projection
+	url += '&v=4'				# version
+	url = url % (BaseUri, panoid, zoom, x, y)
+	
+	return GetUrlContents(url)
+
+def GetUrlContents(url):
+	f = urllib2.urlopen(url)
+	data = f.read()
 	f.close()
-	if not findpanoxml.find('data_properties'):
-		return None
-	return Panorama(libxml2.parseDoc(findpanoxml))
+	return data
 
-
-
-class Panorama:
+class PanoramaMetadata:
 	
 	def __init__(self, panodoc):
 		self.PanoDoc = panodoc
@@ -82,7 +94,7 @@ class Panorama:
 		tmp = panoDocCtx.xpathEval("/panorama/model/pano_map/text()")
 		if len(tmp) > 0:
 			tmp = tmp[0].content
-			tmp = zlib.decompress(base64.urlsafe_b64decode(tmp + self.MakePadding(tmp)))
+			tmp = zlib.decompress(base64.urlsafe_b64decode(tmp + self.MakePadding(tmp)))			
 			self.DecodePanoMap(tmp)
 		
 		tmp = panoDocCtx.xpathEval("/panorama/model/depth_map/text()")
@@ -105,7 +117,7 @@ class Panorama:
 			return
 		pos += headerSize
 		
-		self.PanoMapIndices = list(raw[panoIndicesOffset:panoIndicesOffset + (panoWidth * panoHeight)])
+		self.PanoMapIndices = [ord(x) for x in raw[panoIndicesOffset:panoIndicesOffset + (panoWidth * panoHeight)]]
 		pos += len(self.PanoMapIndices)
 		
 		self.PanoMapPanos = []
@@ -115,7 +127,7 @@ class Panorama:
 			
 		for i in xrange(0, numPanos - 1):
 			(lat, lon) = struct.unpack('<ff', raw[pos:pos+8])
-			self.PanoMapPanos[i]['lat'] = lat
+			self.PanoMapPanos[i]['lat'] = lat # FIXME: not sure what these are - don't think they're geo lat/lon though!
 			self.PanoMapPanos[i]['lon'] = lon
 			pos+=8
 
@@ -128,7 +140,7 @@ class Panorama:
 			return
 		pos += headerSize
 
-		self.DepthMapIndices = list(raw[planeIndicesOffset:planeIndicesOffset + (panoWidth * panoHeight)])
+		self.DepthMapIndices = [ord(x) for x in raw[planeIndicesOffset:planeIndicesOffset + (panoWidth * panoHeight)]]
 		pos += len(self.DepthMapIndices)
 
 		self.DepthMapPlanes = []
@@ -147,5 +159,13 @@ class Panorama:
 			tmp += "%s: %s\n" % x
 		return tmp
 
-pano = FindPano(27.683528,-99.580078,2000)
-print GetPanoMetadata(pano.PanoId)
+
+#pano = GetPanoramaMetadata('3o1v5CkjAaVWjZdjPRpFmw')
+#print pano.Lat
+#print pano.Lon
+
+pano = GetPanoramaMetadata(lat=27.683528, lon=-99.580078)
+print pano.PanoId
+#print pano.PanoMapPanos
+#print pano.DepthMapPlanes
+#print GetPanoramaTile(pano.PanoId, 2, 0, 0)
