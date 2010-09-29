@@ -17,4 +17,18 @@ public class ClassDetails {
 		this.oldName = oldName;
 		this.newName = newName;
 	}
+	
+	public ClassMemberDetails AddField(String oldFieldName, String newFieldName) {
+		ClassMemberDetails cmd = new ClassMemberDetails(oldFieldName, newFieldName);
+		oldFieldNames.put(oldFieldName, cmd);
+		newFieldNames.put(newFieldName, cmd);
+		return cmd;
+	}
+	
+	public ClassMemberDetails AddMethod(String oldMethodName, String newMethodName, String returnDesc) {
+		ClassMemberDetails cmd = new ClassMemberDetails(oldMethodName, newMethodName, returnDesc);
+		oldMethodNames.put(oldMethodName, cmd);
+		newMethodNames.put(newMethodName, cmd);
+		return cmd;
+	}
 }
