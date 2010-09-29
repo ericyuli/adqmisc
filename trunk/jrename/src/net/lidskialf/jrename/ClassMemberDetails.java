@@ -5,11 +5,11 @@ public class ClassMemberDetails {
 	public String newName;
 	public String returnDesc;
 
-	public ClassMemberDetails(String oldName, String newName) {
+	public ClassMemberDetails(String oldName, String newName) { /* for a field */
 		this(oldName, newName, null);
 	}
 
-	public ClassMemberDetails(String oldName, String newName, String returnDesc) {
+	public ClassMemberDetails(String oldName, String newName, String returnDesc) { /* for a method */
 		this.oldName = oldName;
 		this.newName = newName;
 		this.returnDesc = returnDesc;

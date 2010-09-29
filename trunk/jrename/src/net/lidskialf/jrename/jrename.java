@@ -4,16 +4,27 @@ import java.util.*;
 import java.util.zip.*;
 
 public class jrename {
-	private static ClassProcessor cp = new ClassProcessor();
+	private static ClassProcessor cp;
 	private static String outBaseDir;
 	private static ZipOutputStream zipOutStream = null;
 	
 	public static void main(String[] args) {
 		
+		if (args.length != 3) {
+			System.err.println("Syntax: jrename <input> <output> [!]<database>\nWhere:");
+			System.err.println("\t<input> may be a .class, .zip, .jar file, or a directory.");
+			System.err.println("\t<output> may be a .zip, .jar file, or a directory.");
+			System.err.println("\t<database> is the file to load/store the rename database from/to. Prefix with a '!' character to reverse the transformation.");
+			System.exit(1);
+		}
+		
 		String inFilename = args[0];
 		String outFilename = args[1];
+		String dbFilename = args[2];
 
 		try {
+			cp = new ClassProcessor(dbFilename);
+
 			File inFile = new File(inFilename);		
 			if (!inFile.exists()) {
 				System.err.println("Failed to open file: " + inFilename);
@@ -57,12 +68,14 @@ public class jrename {
 				}
 				zf.close();
 			} else {
-				System.err.println("Don't know what to do with: " + inFilename);
+				System.err.println("I don't know what to do with: " + inFilename);
 				System.exit(1);			
 			}
 			
 			if (zipOutStream != null)
 				zipOutStream.close();
+			
+			cp.SaveDatabase();
 			
 		} catch (Exception ex) {
 			ex.printStackTrace();

@@ -1,9 +1,6 @@
 package net.lidskialf.jrename;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.util.HashMap;
 
 import org.objectweb.asm.ClassReader;
@@ -11,6 +8,9 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Type;
 
 public class ClassProcessor {
+	
+	private String dbFilename;
+	boolean swapOrder = false;
 	
 	public byte[] outData;
 	public String outClassName;
@@ -34,6 +34,111 @@ public class ClassProcessor {
 		badNames.put("goto", true);
 		badNames.put("try", true);
 		badNames.put("null", true);
+	}
+	
+	public ClassProcessor(String dbFilename) throws FileNotFoundException, IOException {
+		if (dbFilename.startsWith("!")) {
+			swapOrder = true;
+			dbFilename = dbFilename.substring(1);
+		}
+		this.dbFilename = dbFilename;
+		
+		File dbFile = new File(dbFilename);
+		if (!dbFile.exists())
+			return;
+		
+		BufferedReader br = new BufferedReader(new FileReader(dbFilename));
+		String line = null;
+		int lineno = 0;
+		ClassDetails curClassDetails = null;
+		while((line = br.readLine()) !=  null) {
+			boolean isClass = !Character.isWhitespace(line.charAt(0));
+			String[] bits = line.trim().split("\\s+");
+			
+			if (swapOrder) {
+				String tmp = bits[0];
+				bits[0] = bits[1];
+				bits[1] = tmp;			
+			}
+			
+			if (isClass) {
+				if (bits.length != 2)
+					throw new RuntimeException("Invalid class replace line @" + lineno);
+				
+				curClassDetails = new ClassDetails(bits[0], bits[1]);
+				oldClassNames.put(curClassDetails.oldName, curClassDetails);
+				newClassNames.put(curClassDetails.newName, curClassDetails);
+			} else {
+				if(curClassDetails == null)
+					throw new RuntimeException("Class member line seen before class replace line @" + lineno);
+				
+				if (bits.length == 2) { /* field */
+					ClassMemberDetails cmd = new ClassMemberDetails(bits[0], bits[1]);
+					curClassDetails.oldFieldNames.put(cmd.oldName, cmd);
+					curClassDetails.newFieldNames.put(cmd.newName, cmd);
+				} else if (bits.length == 3) { /* method */
+					ClassMemberDetails cmd = new ClassMemberDetails(bits[0], bits[1], bits[2]);
+					curClassDetails.oldMethodNames.put(cmd.oldName, cmd);
+					curClassDetails.newMethodNames.put(cmd.newName, cmd);					
+				} else {
+					throw new RuntimeException("Invalid class member line @" + lineno);					
+				}				
+			}
+			
+			lineno++;
+		}
+		
+		br.close();
+	}
+	
+	public void SaveDatabase() throws FileNotFoundException, IOException  {
+		BufferedWriter bw = new BufferedWriter(new FileWriter(dbFilename));
+		
+		for(ClassDetails cd: oldClassNames.values()) {
+			if (!swapOrder) {
+				bw.write(cd.oldName);
+				bw.write(" ");
+				bw.write(cd.newName);
+			} else {
+				bw.write(cd.newName);
+				bw.write(" ");
+				bw.write(cd.oldName);
+			}
+			bw.newLine();
+			
+			for(ClassMemberDetails cmd: cd.oldFieldNames.values()) {
+				bw.write("\t");
+				if (!swapOrder) {
+					bw.write(cmd.oldName);
+					bw.write(" ");
+					bw.write(cmd.newName);
+				} else {
+					bw.write(cmd.newName);
+					bw.write(" ");
+					bw.write(cmd.oldName);					
+				}
+				bw.newLine();
+			}
+			
+			for(ClassMemberDetails cmd: cd.oldMethodNames.values()) {
+				bw.write("\t");
+				if (!swapOrder) {
+					bw.write(cmd.oldName);
+					bw.write(" ");
+					bw.write(cmd.newName);
+				} else {
+					bw.write(cmd.newName);
+					bw.write(" ");
+					bw.write(cmd.oldName);					
+				}
+				bw.write(" ");
+				bw.write(cmd.returnDesc);					
+				bw.newLine();
+			}
+		}
+		
+		bw.flush();
+		bw.close();
 	}
 	
 	public void ProcessFile(File inFile) throws FileNotFoundException, IOException {
