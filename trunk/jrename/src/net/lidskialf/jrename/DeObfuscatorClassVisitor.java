@@ -57,7 +57,7 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 		
 		name = cp.FixFieldName(classOriginalFullName, name);
 		desc = cp.FixDescriptor(desc);
-		
+
 		// FIXME
 		if (signature != null)
 			throw new RuntimeException("Signature was not null");

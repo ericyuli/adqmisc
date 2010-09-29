@@ -6,6 +6,8 @@ import org.objectweb.asm.*;
 
 public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	
+	public static boolean StripLineNumbers = true;
+	
 	private ClassProcessor cp;
 	private int methodAccess;
 	private MethodVisitor mv;	
@@ -88,7 +90,8 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 
 	@Override
 	public void visitLineNumber(int line, Label start) {
-		mv.visitLineNumber(line, start);
+		if (!StripLineNumbers)
+			mv.visitLineNumber(line, start);
 	}
 
 	@Override

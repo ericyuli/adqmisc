@@ -4,13 +4,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.HashMap;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.util.*;
 
 public class ClassProcessor {
 	
@@ -189,7 +187,11 @@ public class ClassProcessor {
 		case Type.OBJECT:
 			return "L" + FixClassName(fieldType.getInternalName()) + ";";
 		case Type.ARRAY:
-			return "[" + FixDescriptor(fieldType.getElementType().getDescriptor());
+			StringBuilder sb = new StringBuilder();
+			for(int i=0; i < fieldType.getDimensions(); i++)
+				sb.append("[");
+			sb.append(FixDescriptor(fieldType.getElementType().getDescriptor()));
+			return sb.toString();
 		}
 		return desc;
 	}
@@ -216,7 +218,11 @@ public class ClassProcessor {
 				return FixClassName(fieldType.getInternalName());
 
 		case Type.ARRAY:
-			return "[" + FixType(fieldType.getElementType().getDescriptor(), true);
+			StringBuilder sb = new StringBuilder();
+			for(int i=0; i < fieldType.getDimensions(); i++)
+				sb.append("[");
+			sb.append(FixType(fieldType.getElementType().getDescriptor(), true));
+			return sb.toString();
 		}
 		return internalName;
 	}
