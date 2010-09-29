@@ -55,7 +55,7 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 								   String signature, 
 								   Object value) {
 		
-		name = cp.FixFieldName(classOriginalFullName, name);
+		name = cp.FixFieldName(classOriginalFullName, name, desc);
 		desc = cp.FixDescriptor(desc);
 
 		// FIXME

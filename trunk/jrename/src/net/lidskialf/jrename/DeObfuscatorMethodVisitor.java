@@ -11,7 +11,8 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	private ClassProcessor cp;
 	private int methodAccess;
 	private MethodVisitor mv;	
-	private HashMap<String, Boolean> localVariableNames = new HashMap<String, Boolean>();
+	private HashMap<String, Integer> localVariableNames = new HashMap<String, Integer>();
+	private HashMap<Integer, String> localVariableSlots = new HashMap<Integer, String>();
 	
 	public DeObfuscatorMethodVisitor(ClassProcessor cp, int methodAccess, MethodVisitor mv) {
 		this.cp = cp;
@@ -48,7 +49,7 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	public void visitFieldInsn(int opcode, String owner, String name, String desc) {
 		String ownerOldName = owner;
 		owner = cp.FixClassName(ownerOldName);
-		name = cp.FixFieldName(ownerOldName, name);
+		name = cp.FixFieldName(ownerOldName, name, desc);
 		desc = cp.FixDescriptor(desc);
 		mv.visitFieldInsn(opcode, owner, name, desc);
 	}
@@ -98,28 +99,31 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	public void visitLocalVariable(String name, String desc, String signature,
 			Label start, Label end, int index) {
 		
-		if ((index == 0) && ((methodAccess & Opcodes.ACC_STATIC) == 0))
-			name = "this";
-
-		String localNewName = name;
-		if (cp.NeedsRenamed(name)) {
-			localNewName = "local_" + name;
-			
-			String tmpLocalName;
-			for(int idx = 0; ; idx++) {
-				tmpLocalName = localNewName;
-				if (idx > 0)
-					tmpLocalName += idx;
-
-				if (localVariableNames.containsKey(tmpLocalName))
-					continue;
-				break;
+		if (!localVariableSlots.containsKey(index)) {
+			if ((index == 0) && ((methodAccess & Opcodes.ACC_STATIC) == 0))
+				name = "this";
+	
+			String localNewName = name;
+			if (cp.NeedsRenamed(name)) {
+				localNewName = "local_" + name;
+				
+				String tmpLocalName;
+				for(int idx = 0; ; idx++) {
+					tmpLocalName = localNewName;
+					if (idx > 0)
+						tmpLocalName += idx;
+	
+					if (localVariableNames.containsKey(tmpLocalName))
+						continue;
+					break;
+				}
+				localNewName = tmpLocalName;
 			}
-			localNewName = tmpLocalName;
+			localVariableNames.put(localNewName, index);
+			localVariableSlots.put(index, localNewName);
 		}
-		localVariableNames.put(localNewName, true);
 		
-		name = localNewName;
+		name = localVariableSlots.get(index);
 		desc = cp.FixDescriptor(desc);
 		
 		if (signature != null)

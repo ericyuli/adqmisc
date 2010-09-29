@@ -96,8 +96,11 @@ public class ClassProcessor {
 		return classNewName;
 	}
 
-	public String FixFieldName(String classOldName, String fieldOldName) 
+	public String FixFieldName(String classOldName, String fieldOldName, String desc) 
 	{
+		// FIXME: need to take descriptor into account
+		
+		
 		String classNewName = FixClassName(classOldName);
 		ClassDetails classDetails = oldClassNames.get(classOldName);
 		String classNewLocalName = GetClassLocalName(classNewName);
@@ -130,9 +133,11 @@ public class ClassProcessor {
 		return fieldNewName;
 	}
 
-	public String FixMethodName(String classOldName, String methodOldName, String methodDesc) 
+	public String FixMethodName(String classOldName, String methodOldName, String desc) 
 	{
-		String methodReturnDesc = FixDescriptor(Type.getReturnType(methodDesc).getDescriptor());
+		// FIXME: need to take descriptor into account
+		
+		String methodReturnDesc = FixDescriptor(Type.getReturnType(desc).getDescriptor());
 		
 		String classNewName = FixClassName(classOldName);
 		ClassDetails classDetails = oldClassNames.get(classOldName);
