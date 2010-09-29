@@ -125,9 +125,7 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 		
 		name = localVariableSlots.get(index);
 		desc = cp.FixDescriptor(desc);
-		
-		if (signature != null)
-			throw new RuntimeException("Signature was not null");
+		signature = cp.FixSignature(signature);
 		
 		mv.visitLocalVariable(name, desc, signature, start, end, index);		
 	}
@@ -159,9 +157,8 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 
 	@Override
 	public AnnotationVisitor visitParameterAnnotation(int parameter, String desc, boolean visible) {
-		// FIXME: should we fix the desc here?
-		throw new RuntimeException("visitParameterAnnotation called");
-//		return mv.visitParameterAnnotation(parameter, desc, visible);
+		desc = cp.FixDescriptor(desc);
+		return mv.visitParameterAnnotation(parameter, desc, visible);
 	}
 
 	@Override
