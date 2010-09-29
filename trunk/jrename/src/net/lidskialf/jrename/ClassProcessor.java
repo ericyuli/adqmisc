@@ -41,6 +41,11 @@ public class ClassProcessor {
 		this.dbFilename = dbFilename;
 		this.swapOrder = swapOrder;
 		
+		// some overrides of known good fieldnames which are otherwise accidentally broken
+		ClassDetails cd = AddClass("java/awt/Rectangle", "java/awt/Rectangle");
+		cd.AddField("x", "x");
+		cd.AddField("y", "y");
+		
 		File dbFile = new File(dbFilename);
 		if (!dbFile.exists()) {
 			swapOrder = false;
@@ -168,6 +173,14 @@ public class ClassProcessor {
 		outClassName = deob.getClassNewFullName();
 	}
 	
+	public ClassDetails AddClass(String classOldName, String classNewName)
+	{
+		ClassDetails classDetails = new ClassDetails(classOldName, classNewName);
+		oldClassNames.put(classOldName, classDetails);
+		newClassNames.put(classNewName, classDetails);
+		return classDetails;
+	}
+	
 
 	
 	
@@ -194,9 +207,7 @@ public class ClassProcessor {
 			classNewName = tmpClassName;
 		}
 
-		ClassDetails classDetails = new ClassDetails(classOldName, classNewName);
-		oldClassNames.put(classOldName, classDetails);
-		newClassNames.put(classNewName, classDetails);
+		AddClass(classOldName, classNewName);
 		return classNewName;
 	}
 	
@@ -244,9 +255,7 @@ public class ClassProcessor {
 			fieldNewName = tmpFieldName;
 		}
 		
-		ClassMemberDetails memberDetails = new ClassMemberDetails(fieldOldName, fieldNewName);
-		classDetails.oldFieldNames.put(fieldOldName, memberDetails);
-		classDetails.newFieldNames.put(fieldNewName, memberDetails);
+		classDetails.AddField(fieldOldName, fieldNewName);
 		return fieldNewName;
 	}
 
@@ -287,9 +296,7 @@ public class ClassProcessor {
 			methodNewName = tmpMethodName;
 		}
 		
-		ClassMemberDetails memberDetails = new ClassMemberDetails(methodOldName, methodNewName, methodReturnDesc);
-		classDetails.oldMethodNames.put(methodOldName, memberDetails);
-		classDetails.newMethodNames.put(methodNewName, memberDetails);
+		classDetails.AddMethod(methodOldName, methodNewName, methodReturnDesc);
 		return methodNewName;
 	}
 	
