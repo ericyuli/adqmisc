@@ -81,11 +81,15 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 
 	@Override
 	public void visitInnerClass(String name, String outerName, String innerName, int access) {
+		String oldName = name;
 		name = cp.FixClassName(name);
+		
 		if (outerName != null)
-			outerName = cp.FixClassName(outerName);
-		if (innerName != null)
-			innerName = cp.FixClassName(innerName);
+			outerName = cp.FixClassName(outerName);		
+		if ((innerName != null) && (!cp.NeedsRenamed(innerName))) {
+			name = outerName + "$" + innerName;
+			cp.SetClassName(oldName, name);
+		}
 		
 		cv.visitInnerClass(name, outerName, innerName, access);
 	}
