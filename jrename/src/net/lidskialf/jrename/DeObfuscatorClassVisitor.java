@@ -32,6 +32,7 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 		
 		name = cp.FixClassName(name);
 		classNewFullName = name;
+		signature = cp.FixSignature(signature);
 		superName = cp.FixClassName(superName);
 		
 		Vector<String> newInterfaces = new Vector<String>();
@@ -40,11 +41,6 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 		}
 		interfaces = newInterfaces.toArray(new String[newInterfaces.size()]);
 				
-		// FIXME
-		if (signature != null)
-			throw new RuntimeException("Signature was not null");
-		// END FIXME		
-		
 		cv.visit(version, access, name, signature, superName, interfaces);
 	}
 
@@ -57,11 +53,7 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 		
 		name = cp.FixFieldName(classOriginalFullName, name, desc);
 		desc = cp.FixDescriptor(desc);
-
-		// FIXME
-		if (signature != null)
-			throw new RuntimeException("Signature was not null");
-		// END FIXME
+		signature = cp.FixSignature(signature);
 		
 		return cv.visitField(access, name, desc, signature, value);
 	}
@@ -75,18 +67,14 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 		
 		name = cp.FixMethodName(classOriginalFullName, name, desc);
 		desc = cp.FixMethodDescriptor(desc);
+		signature = cp.FixSignature(signature);
 
 		if (exceptions != null) {
 			Vector<String> newExceptions = new Vector<String>();
 			for(String x: exceptions)
 				newExceptions.add(cp.FixClassName(x));
 			exceptions = newExceptions.toArray(new String[newExceptions.size()]);
-		}
-		
-		// FIXME
-		if (signature != null)
-			throw new RuntimeException("Signature was not null");
-		// END FIXME
+		}		
 		
 		return new DeObfuscatorMethodVisitor(cp, access, cv.visitMethod(access, name, desc, signature, exceptions));
 	}
@@ -104,16 +92,19 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 
 	@Override
 	public void visitOuterClass(String owner, String name, String desc) {
-
-		// FIXME
-		throw new RuntimeException("Outer class seen");
-		// END FIXME
+		String oldClassName = owner;
+		owner = cp.FixClassName(owner);
+		if (name != null) {
+			name = cp.FixMethodName(oldClassName, name, desc);
+			desc = cp.FixMethodDescriptor(desc);
+		}
 		
-//		cv.visitOuterClass(owner,  name, desc);
+		cv.visitOuterClass(owner, name, desc);
 	}
 
 	@Override
 	public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+		desc = cp.FixDescriptor(desc);
 		return cv.visitAnnotation(desc, visible);
 	}
 

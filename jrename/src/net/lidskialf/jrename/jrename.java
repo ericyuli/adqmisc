@@ -23,7 +23,12 @@ public class jrename {
 		String dbFilename = args[2];
 
 		try {
-			cp = new ClassProcessor(dbFilename);
+			boolean swapOrder = false;
+			if (dbFilename.startsWith("!")) {
+				swapOrder = true;
+				dbFilename = dbFilename.substring(1);
+			}
+			cp = new ClassProcessor(dbFilename, swapOrder);
 
 			File inFile = new File(inFilename);		
 			if (!inFile.exists()) {

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.signature.*;
 
 public class ClassProcessor {
 	
@@ -36,16 +37,15 @@ public class ClassProcessor {
 		badNames.put("null", true);
 	}
 	
-	public ClassProcessor(String dbFilename) throws FileNotFoundException, IOException {
-		if (dbFilename.startsWith("!")) {
-			swapOrder = true;
-			dbFilename = dbFilename.substring(1);
-		}
+	public ClassProcessor(String dbFilename, boolean swapOrder) throws FileNotFoundException, IOException {		
 		this.dbFilename = dbFilename;
+		this.swapOrder = swapOrder;
 		
 		File dbFile = new File(dbFilename);
-		if (!dbFile.exists())
+		if (!dbFile.exists()) {
+			swapOrder = false;
 			return;
+		}
 		
 		BufferedReader br = new BufferedReader(new FileReader(dbFilename));
 		String line = null;
@@ -205,7 +205,6 @@ public class ClassProcessor {
 	{
 		// FIXME: need to take descriptor into account
 		
-		
 		String classNewName = FixClassName(classOldName);
 		ClassDetails classDetails = oldClassNames.get(classOldName);
 		String classNewLocalName = GetClassLocalName(classNewName);
@@ -336,7 +335,17 @@ public class ClassProcessor {
 		}
 		return internalName;
 	}
-
+	
+	public String FixSignature(String signature) {
+		if (signature == null)
+			return null;
+		
+		SignatureReader reader = new SignatureReader(signature);
+		SignatureWriter writer = new SignatureWriter();
+		DeObfuscatorSignatureVisitor deob = new DeObfuscatorSignatureVisitor(this, writer);
+		reader.accept(deob);
+		return writer.toString();
+	}
 	
 	public boolean NeedsRenamed(String testName)
 	{
