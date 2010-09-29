@@ -161,7 +161,6 @@ public class ClassProcessor {
 		ClassReader reader = new ClassReader(inClass);
 		ClassWriter writer = new ClassWriter(0);
 		
-//		TraceClassVisitor tcv = new TraceClassVisitor(writer, new PrintWriter(System.out));
 		DeObfuscatorClassVisitor deob = new DeObfuscatorClassVisitor(this, writer);
 		
 		reader.accept(deob, 0);
@@ -199,6 +198,20 @@ public class ClassProcessor {
 		oldClassNames.put(classOldName, classDetails);
 		newClassNames.put(classNewName, classDetails);
 		return classNewName;
+	}
+	
+	
+	public void SetClassName(String oldName, String newName) {
+		if (oldClassNames.containsKey(oldName)) {
+			ClassDetails cd = oldClassNames.get(oldName);
+			newClassNames.remove(cd.newName);
+			cd.newName = newName;
+			newClassNames.put(newName, cd);
+		} else {
+			ClassDetails cd = new ClassDetails(oldName, newName);
+			oldClassNames.put(oldName, cd);
+			newClassNames.put(newName, cd);
+		}
 	}
 
 	public String FixFieldName(String classOldName, String fieldOldName, String desc) 

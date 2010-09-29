@@ -43,35 +43,14 @@ public class jrename {
 				outBaseDir = outFilename;
 			
 			if (inFile.isDirectory()) {
-				ProcessDirectory(inFile);
+				ProcessDirectory(inFile, false);
+				ProcessDirectory(inFile, true);
 			} else if (inFilename.endsWith(".class")) {
-				ProcessFile(inFile);
+				ProcessFile(inFile, false);
+				ProcessFile(inFile, true);
 			} else if (inFilename.endsWith(".jar") || inFilename.endsWith(".zip")) {
-				ZipFile zf = new ZipFile(inFile);
-				Enumeration<? extends ZipEntry> entries = zf.entries();
-				while(entries.hasMoreElements()) {
-					ZipEntry entry = entries.nextElement();
-					if (!entry.isDirectory()) {
-						byte[] tmp = new byte[(int)entry.getSize()];
-						
-						int pos = 0;
-						InputStream is = zf.getInputStream(entry);
-						while(true) {
-							int len = is.read(tmp, pos, tmp.length - pos);
-							if (len <= 0)
-								break;
-							pos += len;
-						}
-						is.close();
-						
-						if (entry.getName().endsWith(".class")) {
-							ProcessClass(tmp);
-						} else {
-							SaveData(tmp, entry.getName());
-						}
-					}				
-				}
-				zf.close();
+				ProcessZip(inFile, false);
+				ProcessZip(inFile, true);
 			} else {
 				System.err.println("I don't know what to do with: " + inFilename);
 				System.exit(1);			
@@ -87,23 +66,56 @@ public class jrename {
 		}
 	}
 	
-	private static void ProcessDirectory(File dir) throws IOException {
+	private static void ProcessZip(File inFile, boolean save) throws IOException {
+		ZipFile zf = new ZipFile(inFile);
+		Enumeration<? extends ZipEntry> entries = zf.entries();
+		while(entries.hasMoreElements()) {
+			ZipEntry entry = entries.nextElement();
+			if (!entry.isDirectory()) {
+				byte[] tmp = new byte[(int)entry.getSize()];
+				
+				int pos = 0;
+				InputStream is = zf.getInputStream(entry);
+				while(true) {
+					int len = is.read(tmp, pos, tmp.length - pos);
+					if (len <= 0)
+						break;
+					pos += len;
+				}
+				is.close();
+				
+				if (entry.getName().endsWith(".class")) {
+					ProcessClass(tmp, save);
+				} else {
+					if (save)
+						SaveData(tmp, entry.getName());
+				}
+			}				
+		}
+		zf.close();		
+	}
+	
+	private static void ProcessDirectory(File dir, boolean save) throws IOException {
 		for(File file: dir.listFiles()) {
 			if (file.isDirectory()) 
-				ProcessDirectory(file);
+				ProcessDirectory(file, save);
 			else if (file.getName().endsWith(".class"))
-				ProcessFile(file);
+				ProcessFile(file, save);
 		}	
 	}
 	
-	private static void ProcessFile(File inFile) throws IOException {		
+	private static void ProcessFile(File inFile, boolean save) throws IOException {		
 		cp.ProcessFile(inFile);
-		SaveData(cp.outData, cp.outClassName + ".class");
+		
+		if (save)
+			SaveData(cp.outData, cp.outClassName + ".class");
 	}
 	
-	private static void ProcessClass(byte[] data) throws IOException {		
+	private static void ProcessClass(byte[] data, boolean save) throws IOException {		
 		cp.ProcessClass(data);
-		SaveData(cp.outData, cp.outClassName + ".class");
+		
+		if (save)
+			SaveData(cp.outData, cp.outClassName + ".class");
 	}
 	
 	public static void SaveData(byte[] data, String filename) throws FileNotFoundException, IOException {
