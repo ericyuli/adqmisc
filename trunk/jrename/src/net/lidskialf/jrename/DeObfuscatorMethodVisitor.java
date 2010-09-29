@@ -98,11 +98,11 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	@Override
 	public void visitLocalVariable(String name, String desc, String signature,
 			Label start, Label end, int index) {
-		
+
 		if (!localVariableSlots.containsKey(index)) {
 			if ((index == 0) && ((methodAccess & Opcodes.ACC_STATIC) == 0))
 				name = "this";
-	
+			
 			String localNewName = name;
 			if (cp.NeedsRenamed(name)) {
 				localNewName = "local_" + name;
@@ -124,6 +124,7 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 		}
 		
 		name = localVariableSlots.get(index);
+		
 		desc = cp.FixDescriptor(desc);
 		signature = cp.FixSignature(signature);
 		

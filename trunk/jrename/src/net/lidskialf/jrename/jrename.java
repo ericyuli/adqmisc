@@ -11,10 +11,10 @@ public class jrename {
 	public static void main(String[] args) {
 		
 		if (args.length != 3) {
-			System.err.println("Syntax: jrename <input> <output> [!]<database>\nWhere:");
+			System.err.println("Syntax: jrename <input> <output> <database>\nWhere:");
 			System.err.println("\t<input> may be a .class, .zip, .jar file, or a directory.");
 			System.err.println("\t<output> may be a .zip, .jar file, or a directory.");
-			System.err.println("\t<database> is the file to load/store the rename database from/to. Prefix with a '!' character to reverse the transformation.");
+			System.err.println("\t<database> is the file to load/store the rename database from/to.");
 			System.exit(1);
 		}
 		
@@ -23,12 +23,7 @@ public class jrename {
 		String dbFilename = args[2];
 
 		try {
-			boolean swapOrder = false;
-			if (dbFilename.startsWith("!")) {
-				swapOrder = true;
-				dbFilename = dbFilename.substring(1);
-			}
-			cp = new ClassProcessor(dbFilename, swapOrder);
+			cp = new ClassProcessor(dbFilename);
 
 			File inFile = new File(inFilename);		
 			if (!inFile.exists()) {

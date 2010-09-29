@@ -11,7 +11,6 @@ import org.objectweb.asm.signature.*;
 public class ClassProcessor {
 	
 	private String dbFilename;
-	boolean swapOrder = false;
 	
 	public byte[] outData;
 	public String outClassName;
@@ -37,9 +36,8 @@ public class ClassProcessor {
 		badNames.put("null", true);
 	}
 	
-	public ClassProcessor(String dbFilename, boolean swapOrder) throws FileNotFoundException, IOException {		
+	public ClassProcessor(String dbFilename) throws FileNotFoundException, IOException {		
 		this.dbFilename = dbFilename;
-		this.swapOrder = swapOrder;
 		
 		// some overrides of known good fieldnames which are otherwise accidentally broken
 		ClassDetails cd = AddClass("java/awt/Rectangle", "java/awt/Rectangle");
@@ -47,10 +45,8 @@ public class ClassProcessor {
 		cd.AddField("y", "y");
 		
 		File dbFile = new File(dbFilename);
-		if (!dbFile.exists()) {
-			swapOrder = false;
+		if (!dbFile.exists())
 			return;
-		}
 		
 		BufferedReader br = new BufferedReader(new FileReader(dbFilename));
 		String line = null;
@@ -59,12 +55,6 @@ public class ClassProcessor {
 		while((line = br.readLine()) !=  null) {
 			boolean isClass = !Character.isWhitespace(line.charAt(0));
 			String[] bits = line.trim().split("\\s+");
-			
-			if (swapOrder) {
-				String tmp = bits[0];
-				bits[0] = bits[1];
-				bits[1] = tmp;			
-			}
 			
 			if (isClass) {
 				if (bits.length != 2)
@@ -100,42 +90,24 @@ public class ClassProcessor {
 		BufferedWriter bw = new BufferedWriter(new FileWriter(dbFilename));
 		
 		for(ClassDetails cd: oldClassNames.values()) {
-			if (!swapOrder) {
-				bw.write(cd.oldName);
-				bw.write(" ");
-				bw.write(cd.newName);
-			} else {
-				bw.write(cd.newName);
-				bw.write(" ");
-				bw.write(cd.oldName);
-			}
+			bw.write(cd.oldName);
+			bw.write(" ");
+			bw.write(cd.newName);
 			bw.newLine();
 			
 			for(ClassMemberDetails cmd: cd.oldFieldNames.values()) {
 				bw.write("\t");
-				if (!swapOrder) {
-					bw.write(cmd.oldName);
-					bw.write(" ");
-					bw.write(cmd.newName);
-				} else {
-					bw.write(cmd.newName);
-					bw.write(" ");
-					bw.write(cmd.oldName);					
-				}
+				bw.write(cmd.oldName);
+				bw.write(" ");
+				bw.write(cmd.newName);
 				bw.newLine();
 			}
 			
 			for(ClassMemberDetails cmd: cd.oldMethodNames.values()) {
 				bw.write("\t");
-				if (!swapOrder) {
-					bw.write(cmd.oldName);
-					bw.write(" ");
-					bw.write(cmd.newName);
-				} else {
-					bw.write(cmd.newName);
-					bw.write(" ");
-					bw.write(cmd.oldName);					
-				}
+				bw.write(cmd.oldName);
+				bw.write(" ");
+				bw.write(cmd.newName);
 				bw.write(" ");
 				bw.write(cmd.returnDesc);					
 				bw.newLine();
@@ -228,6 +200,7 @@ public class ClassProcessor {
 	public String FixFieldName(String classOldName, String fieldOldName, String desc) 
 	{
 		// FIXME: need to take descriptor into account
+
 		
 		String classNewName = FixClassName(classOldName);
 		ClassDetails classDetails = oldClassNames.get(classOldName);
@@ -268,7 +241,7 @@ public class ClassProcessor {
 		String classNewName = FixClassName(classOldName);
 		ClassDetails classDetails = oldClassNames.get(classOldName);
 		String classNewLocalName = GetClassLocalName(classNewName);
-		
+
 		if (classDetails.oldFieldNames.containsKey(methodReturnDesc + methodOldName))
 			return classDetails.oldFieldNames.get(methodReturnDesc + methodOldName).newName;
 
