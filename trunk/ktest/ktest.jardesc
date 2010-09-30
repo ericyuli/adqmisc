@@ -11,9 +11,6 @@
         </sealing>
     </manifest>
     <selectedElements exportClassFiles="true" exportJavaFiles="false" exportOutputFolder="false">
-        <file path="/ktest/.project"/>
-        <file path="/ktest/ktest.manifest"/>
         <javaElement handleIdentifier="=ktest/src"/>
-        <file path="/ktest/.classpath"/>
     </selectedElements>
 </jardesc>

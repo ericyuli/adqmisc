@@ -13,7 +13,7 @@ public class ktest extends AbstractKindlet {
 
 	public void start() {
 		try {
-			KOptionPane.showConfirmDialog(ctx.getRootContainer(), "HELLO!");
+			ctx.getRootContainer().add(new KTextArea("HELLO!"));
 		} catch (Throwable t) {
 			t.printStackTrace();
 		}
