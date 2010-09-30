@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Main-Class: net.lidskialf.ktest.ktest
+Implementation-Title: ktest
+Implementation-Version: 0.1
+Implementation-Vendor: Andrew de Quincey
