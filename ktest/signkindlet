@@ -1,0 +1,8 @@
+#!/bin/sh
+
+KEYSTORE=$1
+JAR=$2
+
+jarsigner -keystore $KEYSTORE -storepass password $JAR dktest
+jarsigner -keystore $KEYSTORE -storepass password $JAR ditest
+jarsigner -keystore $KEYSTORE -storepass password $JAR dntest
