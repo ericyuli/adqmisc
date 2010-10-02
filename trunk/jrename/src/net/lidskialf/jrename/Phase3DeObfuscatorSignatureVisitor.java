@@ -2,12 +2,12 @@ package net.lidskialf.jrename;
 
 import org.objectweb.asm.signature.SignatureVisitor;
 
-public class DeObfuscatorSignatureVisitor implements SignatureVisitor {
+public class Phase3DeObfuscatorSignatureVisitor implements SignatureVisitor {
 
 	private ClassProcessor cp;
 	private SignatureVisitor sv;
 	
-	public DeObfuscatorSignatureVisitor(ClassProcessor cp, SignatureVisitor sv) {
+	public Phase3DeObfuscatorSignatureVisitor(ClassProcessor cp, SignatureVisitor sv) {
 		this.cp = cp;
 		this.sv = sv;
 	}

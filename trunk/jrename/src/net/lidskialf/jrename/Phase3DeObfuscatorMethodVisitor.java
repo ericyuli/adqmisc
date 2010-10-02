@@ -4,7 +4,7 @@ import java.util.HashMap;
 
 import org.objectweb.asm.*;
 
-public class DeObfuscatorMethodVisitor implements MethodVisitor {
+public class Phase3DeObfuscatorMethodVisitor implements MethodVisitor {
 	
 	public static boolean StripLineNumbers = true;
 	
@@ -14,7 +14,7 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	private HashMap<String, Integer> localVariableNames = new HashMap<String, Integer>();
 	private HashMap<Integer, String> localVariableSlots = new HashMap<Integer, String>();
 	
-	public DeObfuscatorMethodVisitor(ClassProcessor cp, int methodAccess, MethodVisitor mv) {
+	public Phase3DeObfuscatorMethodVisitor(ClassProcessor cp, int methodAccess, MethodVisitor mv) {
 		this.cp = cp;
 		this.methodAccess = methodAccess;
 		this.mv = mv;
@@ -49,7 +49,7 @@ public class DeObfuscatorMethodVisitor implements MethodVisitor {
 	public void visitFieldInsn(int opcode, String owner, String name, String desc) {
 		String ownerOldName = owner;
 		owner = cp.FixClassName(ownerOldName);
-		name = cp.FixFieldName(ownerOldName, name, desc);
+		name = cp.FixFieldName(ownerOldName, name);
 		desc = cp.FixDescriptor(desc);
 		mv.visitFieldInsn(opcode, owner, name, desc);
 	}

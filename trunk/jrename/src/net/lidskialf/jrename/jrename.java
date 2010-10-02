@@ -7,45 +7,57 @@ public class jrename {
 	private static ClassProcessor cp;
 	private static String outBaseDir;
 	private static ZipOutputStream zipOutStream = null;
+	private static int phase = 1;
 	
 	public static void main(String[] args) {
 		
-		if (args.length != 3) {
-			System.err.println("Syntax: jrename <input> <output> <database>\nWhere:");
+		if (args.length != 2) {
+			System.err.println("Syntax: jrename <input> <output>\nWhere:");
 			System.err.println("\t<input> may be a .class, .zip, .jar file, or a directory.");
 			System.err.println("\t<output> may be a .zip, .jar file, or a directory.");
-			System.err.println("\t<database> is the file to load/store the rename database from/to.");
 			System.exit(1);
 		}
 		
 		String inFilename = args[0];
 		String outFilename = args[1];
-		String dbFilename = args[2];
 
 		try {
-			cp = new ClassProcessor(dbFilename);
+			cp = new ClassProcessor();
 
-			File inFile = new File(inFilename);		
-			if (!inFile.exists()) {
-				System.err.println("Failed to open file: " + inFilename);
-				System.exit(1);
-			}
-			
 			File outFile = new File(outFilename);
 			if (outFilename.endsWith(".jar") || outFilename.endsWith(".zip") || outFile.isFile())
 				zipOutStream = new ZipOutputStream(new FileOutputStream(outFile));
 			else
 				outBaseDir = outFilename;
 			
+			File inFile = new File(inFilename);		
+			if (!inFile.exists()) {
+				System.err.println("Failed to open file: " + inFilename);
+				System.exit(1);
+			}
+			
+			phase = 1;
 			if (inFile.isDirectory()) {
-				ProcessDirectory(inFile, false);
-				ProcessDirectory(inFile, true);
+				ProcessDirectory(inFile);
 			} else if (inFilename.endsWith(".class")) {
-				ProcessFile(inFile, false);
-				ProcessFile(inFile, true);
+				Process(inFile);
 			} else if (inFilename.endsWith(".jar") || inFilename.endsWith(".zip")) {
-				ProcessZip(inFile, false);
-				ProcessZip(inFile, true);
+				ProcessZip(inFile);
+			} else {
+				System.err.println("I don't know what to do with: " + inFilename);
+				System.exit(1);			
+			}
+			
+			phase = 2;
+			cp.ProcessPhase2();
+
+			phase = 3;
+			if (inFile.isDirectory()) {
+				ProcessDirectory(inFile);
+			} else if (inFilename.endsWith(".class")) {
+				Process(inFile);
+			} else if (inFilename.endsWith(".jar") || inFilename.endsWith(".zip")) {
+				ProcessZip(inFile);
 			} else {
 				System.err.println("I don't know what to do with: " + inFilename);
 				System.exit(1);			
@@ -53,15 +65,12 @@ public class jrename {
 			
 			if (zipOutStream != null)
 				zipOutStream.close();
-			
-			cp.SaveDatabase();
-			
 		} catch (Exception ex) {
 			ex.printStackTrace();
 		}
 	}
 	
-	private static void ProcessZip(File inFile, boolean save) throws IOException {
+	private static void ProcessZip(File inFile) throws IOException {
 		ZipFile zf = new ZipFile(inFile);
 		Enumeration<? extends ZipEntry> entries = zf.entries();
 		while(entries.hasMoreElements()) {
@@ -80,9 +89,9 @@ public class jrename {
 				is.close();
 				
 				if (entry.getName().endsWith(".class")) {
-					ProcessClass(tmp, save);
+					Process(tmp);
 				} else {
-					if (save)
+					if (phase == 3)
 						SaveData(tmp, entry.getName());
 				}
 			}				
@@ -90,31 +99,41 @@ public class jrename {
 		zf.close();		
 	}
 	
-	private static void ProcessDirectory(File dir, boolean save) throws IOException {
+	private static void ProcessDirectory(File dir) throws IOException {
 		for(File file: dir.listFiles()) {
 			if (file.isDirectory()) 
-				ProcessDirectory(file, save);
+				ProcessDirectory(file);
 			else if (file.getName().endsWith(".class"))
-				ProcessFile(file, save);
+				Process(file);
 		}	
 	}
 	
-	private static void ProcessFile(File inFile, boolean save) throws IOException {		
-		cp.ProcessFile(inFile);
-		
-		if (save)
+	private static void Process(byte[] data) throws IOException {		
+		switch(phase) {
+		case 1:
+			cp.ProcessPhase1(data);
+			break;
+		case 3:
+			cp.ProcessPhase3(data);
 			SaveData(cp.outData, cp.outClassName + ".class");
+			break;
+		}
+	}	
+	
+	private static void Process(File inFile) throws IOException {		
+		switch(phase) {
+		case 1:
+			cp.ProcessPhase1(inFile);
+			break;
+		case 3:
+			cp.ProcessPhase3(inFile);
+			SaveData(cp.outData, cp.outClassName + ".class");
+			break;
+		}
 	}
 	
-	private static void ProcessClass(byte[] data, boolean save) throws IOException {		
-		cp.ProcessClass(data);
-		
-		if (save)
-			SaveData(cp.outData, cp.outClassName + ".class");
-	}
 	
 	public static void SaveData(byte[] data, String filename) throws FileNotFoundException, IOException {
-		
 		if (zipOutStream != null) {
 			ZipEntry ze = new ZipEntry(filename);
 			zipOutStream.putNextEntry(ze);

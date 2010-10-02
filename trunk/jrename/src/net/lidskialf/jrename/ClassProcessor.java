@@ -1,7 +1,9 @@
 package net.lidskialf.jrename;
 
 import java.io.*;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
@@ -10,15 +12,16 @@ import org.objectweb.asm.signature.*;
 
 public class ClassProcessor {
 	
-	private String dbFilename;
-	
 	public byte[] outData;
 	public String outClassName;
 	
 	private static HashMap<String, Boolean> badNames = new HashMap<String, Boolean>();
 	
-	private static HashMap<String, ClassDetails> oldClassNames = new HashMap<String, ClassDetails>();
-	private static HashMap<String, ClassDetails> newClassNames = new HashMap<String, ClassDetails>();
+	private HashMap<String, ClassDetails> classes = new HashMap<String, ClassDetails>();
+	private HashMap<String, String> classOldToNewNames = new HashMap<String, String>();
+	
+	private List<ClassReference> innerClasses = new ArrayList<ClassReference>();	
+	private List<ClassReference> outerClasses = new ArrayList<ClassReference>();
 
 	static {		
 		badNames.put("for", true);
@@ -36,89 +39,216 @@ public class ClassProcessor {
 		badNames.put("null", true);
 	}
 	
-	public ClassProcessor(String dbFilename) throws FileNotFoundException, IOException {		
-		this.dbFilename = dbFilename;
-		
-		// some overrides of known good fieldnames which are otherwise accidentally broken
-		ClassDetails cd = AddClass("java/awt/Rectangle", "java/awt/Rectangle");
-		cd.AddField("x", "x");
-		cd.AddField("y", "y");
-		
-		File dbFile = new File(dbFilename);
-		if (!dbFile.exists())
-			return;
-		
-		BufferedReader br = new BufferedReader(new FileReader(dbFilename));
-		String line = null;
-		int lineno = 0;
-		ClassDetails curClassDetails = null;
-		while((line = br.readLine()) !=  null) {
-			boolean isClass = !Character.isWhitespace(line.charAt(0));
-			String[] bits = line.trim().split("\\s+");
-			
-			if (isClass) {
-				if (bits.length != 2)
-					throw new RuntimeException("Invalid class replace line @" + lineno);
-				
-				curClassDetails = new ClassDetails(bits[0], bits[1]);
-				oldClassNames.put(curClassDetails.oldName, curClassDetails);
-				newClassNames.put(curClassDetails.newName, curClassDetails);
-			} else {
-				if(curClassDetails == null)
-					throw new RuntimeException("Class member line seen before class replace line @" + lineno);
-				
-				if (bits.length == 2) { /* field */
-					ClassMemberDetails cmd = new ClassMemberDetails(bits[0], bits[1]);
-					curClassDetails.oldFieldNames.put(cmd.oldName, cmd);
-					curClassDetails.newFieldNames.put(cmd.newName, cmd);
-				} else if (bits.length == 3) { /* method */
-					ClassMemberDetails cmd = new ClassMemberDetails(bits[0], bits[1], bits[2]);
-					curClassDetails.oldMethodNames.put(cmd.oldName, cmd);
-					curClassDetails.newMethodNames.put(cmd.newName, cmd);					
+	public void ProcessPhase1(File inFile) throws FileNotFoundException, IOException {
+		ProcessPhase1(LoadFile(inFile));
+	}
+	
+	public void ProcessPhase1(byte[] inClass) {
+		ClassReader reader = new ClassReader(inClass);
+		ClassWriter writer = new ClassWriter(0);		
+		Phase1DeObfuscatorClassVisitor deob = new Phase1DeObfuscatorClassVisitor(this, writer);
+		reader.accept(deob, 0);
+	}
+	
+	public void ProcessPhase2() {
+		/* first of all, figure out the new class name mappings */
+		for(String oldClassFullName: classes.keySet()) {
+			String classPath = GetClassPathName(oldClassFullName);
+			String oldClassLocalName = GetClassLocalName(oldClassFullName);
+			String newClassLocalName = oldClassLocalName;
+			if (NeedsRenamed(oldClassLocalName)) {
+				if (!classes.get(oldClassFullName).isInterface) {
+					newClassLocalName = "intf_" + oldClassLocalName;
 				} else {
-					throw new RuntimeException("Invalid class member line @" + lineno);					
+					newClassLocalName = "class_" + oldClassLocalName;
 				}				
 			}
+			String newClassFullName = classPath + "/" + newClassLocalName;
 			
-			lineno++;
+			classOldToNewNames.put(oldClassFullName, newClassFullName);				
+		}
+
+		/* next, see if we can recover any information from the innerclassnames of obfuscated inner classes */
+		for(ClassReference innerClass: innerClasses) {
+			if (!classes.containsKey(innerClass.toClassName))
+				continue;
+			if (!NeedsRenamed(innerClass.toClassName))
+				continue;
+			if (innerClass.innerClassName == null)
+				continue;
+			if (innerClass.fromClassName == null)
+				continue;
+
+			String newName = FixClassName(innerClass.fromClassName) + "$" + innerClass.innerClassName;
+			classOldToNewNames.put(innerClass.toClassName, newName);
 		}
 		
-		br.close();
-	}
-	
-	public void SaveDatabase() throws FileNotFoundException, IOException  {
-		BufferedWriter bw = new BufferedWriter(new FileWriter(dbFilename));
-		
-		for(ClassDetails cd: oldClassNames.values()) {
-			bw.write(cd.oldName);
-			bw.write(" ");
-			bw.write(cd.newName);
-			bw.newLine();
+		/* now, go through all loaded classes and sort out the names of fields and methods */
+		for(String oldClassFullName: classes.keySet()) {
+			ClassDetails cd = classes.get(oldClassFullName);
 			
-			for(ClassMemberDetails cmd: cd.oldFieldNames.values()) {
-				bw.write("\t");
-				bw.write(cmd.oldName);
-				bw.write(" ");
-				bw.write(cmd.newName);
-				bw.newLine();
+			for(ClassMemberDetails field: cd.fields) {
+				if (cd.fieldOldToNewNameMapping.containsKey(field.name))
+					continue;				
+				RenameField(cd, field.name);
 			}
 			
-			for(ClassMemberDetails cmd: cd.oldMethodNames.values()) {
-				bw.write("\t");
-				bw.write(cmd.oldName);
-				bw.write(" ");
-				bw.write(cmd.newName);
-				bw.write(" ");
-				bw.write(cmd.returnDesc);					
-				bw.newLine();
+			for(ClassMemberDetails method: cd.methods) {
+				if (cd.methodOldToNewNameMapping.containsKey(method.name + "!" + method.returnDesc))
+					continue;
+				RenameMethod(cd, method.name, method.returnDesc);
 			}
 		}
-		
-		bw.flush();
-		bw.close();
 	}
 	
-	public void ProcessFile(File inFile) throws FileNotFoundException, IOException {
+	public void ProcessPhase3(File inFile) throws FileNotFoundException, IOException {
+		ProcessPhase3(LoadFile(inFile));
+	}
+	
+	public void ProcessPhase3(byte[] inClass) {
+		ClassReader reader = new ClassReader(inClass);
+		ClassWriter writer = new ClassWriter(0);		
+		Phase3DeObfuscatorClassVisitor deob = new Phase3DeObfuscatorClassVisitor(this, writer);
+		reader.accept(deob, 0);
+		outData = writer.toByteArray();
+		outClassName = deob.getClassNewName();
+	}
+
+	
+	
+	
+	private String RenameMethod(ClassDetails cd, String methodOldName, String methodReturnDesc) {
+		// if its already been renamed in this class, just return that
+		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "!" + methodReturnDesc))
+			return cd.methodOldToNewNameMapping.get(methodOldName + "!" + methodReturnDesc);
+		
+		// if there is a superclass, traverse upwards checking if we've already renamed it
+		if ((cd.superName != null) && classes.containsKey(cd.superName)) {	
+			String methodNewName = RenameMethod(classes.get(cd.superName), methodOldName, methodReturnDesc);
+			if (methodNewName != null)
+				return SetMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+		}
+		
+		// if there are interfaces, traverse upwards checking if we've already renamed it
+		for(String intf: cd.interfaces) {
+			if (!classes.containsKey(intf))
+				continue;
+			
+			String methodNewName = RenameMethod(classes.get(intf), methodOldName, methodReturnDesc);
+			if (methodNewName != null)
+				return SetMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+		}
+		
+		// otherwise, rename it!
+		String methodNewName = methodOldName;
+		if (NeedsRenamed(methodOldName))
+			methodNewName = "method_" + methodOldName;
+		return SetUniqueMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+	}
+
+	private String SetMethodName(ClassDetails cd, String methodOldName, String methodNewName, String methodReturnDesc) {
+		if (cd.methodNewNameToReturnDescMapping.containsKey(methodNewName)) {
+			if (!cd.methodNewNameToReturnDescMapping.get(methodNewName).equals(methodReturnDesc))
+				throw new RuntimeException("Duplicate method entry found: " + cd.name + " " + methodOldName + " " + methodNewName + " " + methodReturnDesc);
+			return methodNewName;
+		}
+			
+		cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodNewName);
+		cd.methodNewNameToReturnDescMapping.put(methodNewName, methodReturnDesc);
+		
+		return methodNewName;
+	}
+	
+	private String SetUniqueMethodName(ClassDetails cd, String methodOldName, String methodNewName, String methodReturnDesc) {		
+		int idx = 0;
+		String methodUniqueNewName = methodNewName;
+		while(true) {
+			if (idx > 0)
+				methodUniqueNewName = methodNewName + idx;
+			if (!cd.methodNewNameToReturnDescMapping.containsKey(methodUniqueNewName)) {
+				cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodUniqueNewName);
+				cd.methodNewNameToReturnDescMapping.put(methodUniqueNewName, methodReturnDesc);
+				break;
+			} else {
+				if (methodReturnDesc.equals(cd.methodNewNameToReturnDescMapping.get(methodUniqueNewName))) {
+					cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodUniqueNewName);
+					break;
+				}
+			}
+			
+			idx++;
+		}
+		return methodUniqueNewName;
+	}
+
+	
+	
+	
+	
+	private String RenameField(ClassDetails cd, String fieldOldName) {
+		// if its already been renamed in this class, just return that
+		if (cd.fieldOldToNewNameMapping.containsKey(fieldOldName))
+			return cd.fieldOldToNewNameMapping.get(fieldOldName);
+		
+		// if there is a superclass, traverse upwards checking if we've already renamed it
+		if ((cd.superName != null) && classes.containsKey(cd.superName)) {	
+			String fieldNewName = RenameField(classes.get(cd.superName), fieldOldName);
+			if (fieldNewName != null)
+				return SetFieldName(cd, fieldOldName, fieldNewName);
+		}
+		
+		// if there are interfaces, traverse upwards checking if we've already renamed it
+		for(String intf: cd.interfaces) {
+			if (!classes.containsKey(intf))
+				continue;
+			
+			String fieldNewName = RenameField(classes.get(intf), fieldOldName);
+			if (fieldNewName != null)
+				return SetFieldName(cd, fieldOldName, fieldNewName);
+		}
+		
+		// otherwise, rename it!
+		String fieldNewName = fieldOldName;
+		if (NeedsRenamed(fieldOldName))
+			fieldNewName = "field_" + fieldOldName;
+		return SetUniqueFieldName(cd, fieldOldName, fieldNewName);
+	}
+	
+	private String SetFieldName(ClassDetails cd, String fieldOldName, String fieldNewName) {
+		if (cd.fieldOldToNewNameMapping.containsKey(fieldOldName))
+			throw new RuntimeException("Duplicate field entry found: " + cd.name + " " + fieldOldName + " " + fieldNewName);
+		cd.fieldOldToNewNameMapping.put(fieldOldName, fieldNewName);
+		cd.fieldNewNameUsed.put(fieldNewName, true);
+		
+		return fieldNewName;
+	}
+	
+	private String SetUniqueFieldName(ClassDetails cd, String fieldOldName, String fieldNewName) {
+		int idx = 0;
+		String fieldUniqueNewName = fieldNewName;
+		while(true) {
+			if (idx > 0)
+				fieldUniqueNewName = fieldNewName + idx;
+			
+			if (!cd.fieldNewNameUsed.containsKey(fieldUniqueNewName)) {
+				cd.fieldOldToNewNameMapping.put(fieldOldName, fieldUniqueNewName);
+				cd.fieldNewNameUsed.put(fieldUniqueNewName, true);
+				break;
+			}
+			
+			idx++;
+		}
+		return fieldUniqueNewName;
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	public byte[] LoadFile(File inFile) throws FileNotFoundException, IOException {
 		FileInputStream fis = new FileInputStream(inFile);
 		byte[] inData = new byte[(int) inFile.length()];
 		
@@ -131,146 +261,120 @@ public class ClassProcessor {
 		}
 		fis.close();
 		
-		ProcessClass(inData);
+		return inData;
 	}
 	
-	public void ProcessClass(byte[] inClass) {
-		ClassReader reader = new ClassReader(inClass);
-		ClassWriter writer = new ClassWriter(0);
+	public ClassDetails AddClass(String name, String superName, String[] interfaces, boolean isInterface) {		
+		if (classes.containsKey(name))
+			throw new RuntimeException("Duplicate class found: " + name);
 		
-		DeObfuscatorClassVisitor deob = new DeObfuscatorClassVisitor(this, writer);
-		
-		reader.accept(deob, 0);
-		outData = writer.toByteArray();
-		outClassName = deob.getClassNewFullName();
-	}
-	
-	public ClassDetails AddClass(String classOldName, String classNewName)
-	{
-		ClassDetails classDetails = new ClassDetails(classOldName, classNewName);
-		oldClassNames.put(classOldName, classDetails);
-		newClassNames.put(classNewName, classDetails);
+		ClassDetails classDetails = new ClassDetails(name, superName, interfaces, isInterface);
+		classes.put(name, classDetails);
 		return classDetails;
 	}
 	
+	public void AddInnerClassReference(String fromClassName, String toClassName, String innerClassName, boolean isInterface) {
+		innerClasses.add(new ClassReference(fromClassName, toClassName, innerClassName, isInterface));
+	}
+	
+	public void AddOuterClassReference(String fromClassName, String toClassName) {
+		outerClasses.add(new ClassReference(fromClassName, toClassName, null, false));
+	}
+
+	public ClassMemberDetails AddField(String className, String fieldName, String fieldDesc) {
+		ClassDetails classDetails = classes.get(className);
+		if (classDetails == null)
+			throw new RuntimeException("Attempt to add field to nonexistant class: " + className);
+		
+		return classDetails.AddField(fieldName, fieldDesc);
+	}
+	
+	public ClassMemberDetails AddMethod(String className, String methodName, String returnDesc, String argsDesc) {
+		ClassDetails classDetails = classes.get(className);
+		if (classDetails == null)
+			throw new RuntimeException("Attempt to add field to nonexistant class: " + className);
+		
+		return classDetails.AddMethod(methodName, returnDesc, argsDesc);
+	}
 
 	
 	
-
+	
 	public String FixClassName(String classOldName) 
 	{
-		if (oldClassNames.containsKey(classOldName))
-			return oldClassNames.get(classOldName).newName;
-
-		String classNewName = classOldName;
-		if (NeedsRenamed(classOldName)) {
-			classNewName = GetClassPathName(classOldName) + "/class_" + GetClassLocalName(classOldName);
-	
-			String tmpClassName;
-			for(int idx = 0; ; idx++) {
-				tmpClassName = classNewName;
-				if (idx > 0)
-					tmpClassName += idx;
-				
-				if (newClassNames.containsKey(tmpClassName))
-					continue;
-				break;		
-			}
-			classNewName = tmpClassName;
-		}
-
-		AddClass(classOldName, classNewName);
-		return classNewName;
+		if (classOldToNewNames.containsKey(classOldName))
+			return classOldToNewNames.get(classOldName);
+		return classOldName;
 	}
 	
-	
-	public void SetClassName(String oldName, String newName) {
-		if (oldClassNames.containsKey(oldName)) {
-			ClassDetails cd = oldClassNames.get(oldName);
-			newClassNames.remove(cd.newName);
-			cd.newName = newName;
-			newClassNames.put(newName, cd);
-		} else {
-			ClassDetails cd = new ClassDetails(oldName, newName);
-			oldClassNames.put(oldName, cd);
-			newClassNames.put(newName, cd);
-		}
-	}
-
-	public String FixFieldName(String classOldName, String fieldOldName, String desc) 
+	public String FixFieldName(String classOldName, String fieldOldName) 
 	{
-		// FIXME: need to take descriptor into account
-
+		ClassDetails cd = classes.get(classOldName);
+		if (cd == null)
+			return fieldOldName;
 		
-		String classNewName = FixClassName(classOldName);
-		ClassDetails classDetails = oldClassNames.get(classOldName);
-		String classNewLocalName = GetClassLocalName(classNewName);
+		String fieldNewName = FixFieldName(cd, fieldOldName);
+		if (fieldNewName == null)
+			return fieldOldName;
 		
-		if (classDetails.oldFieldNames.containsKey(fieldOldName))
-			return classDetails.oldFieldNames.get(fieldOldName).newName;
-
-		String fieldNewName = fieldOldName;
-		if (NeedsRenamed(fieldOldName)) {
-			fieldNewName = "field_" + fieldOldName;
-			
-			String tmpFieldName;
-			for(int idx = 0; ; idx++) {
-				tmpFieldName = fieldNewName;
-				if (idx > 0)
-					tmpFieldName += idx;
-				
-				if (tmpFieldName.equals(classNewLocalName))
-					continue;
-				if (classDetails.newFieldNames.containsKey(tmpFieldName))
-					continue;
-				break;
-			}
-			fieldNewName = tmpFieldName;
+		return fieldNewName;
+	}
+	
+	private String FixFieldName(ClassDetails cd, String fieldOldName) 
+	{
+		if (cd.fieldOldToNewNameMapping.containsKey(fieldOldName))
+			return cd.fieldOldToNewNameMapping.get(fieldOldName);
+		
+		if ((cd.superName != null) && classes.containsKey(cd.superName)) {
+			String tmp = FixFieldName(classes.get(cd.superName), fieldOldName);
+			if (tmp != null)
+				return tmp;
 		}
 		
-		classDetails.AddField(fieldOldName, fieldNewName);
-		return fieldNewName;
+		for(String intf: cd.interfaces) {
+			String tmp = FixFieldName(classes.get(intf), fieldOldName);
+			if (tmp != null)
+				return tmp;
+		}
+		
+		return null;
 	}
 
 	public String FixMethodName(String classOldName, String methodOldName, String desc) 
 	{
-		// FIXME: need to take descriptor into account
+		ClassDetails cd = classes.get(classOldName);
+		if (cd == null)
+			return methodOldName;
+		String returnDesc = FixDescriptor(Type.getReturnType(desc).getDescriptor());
 		
-		String methodReturnDesc = FixDescriptor(Type.getReturnType(desc).getDescriptor());
+		String methodNewName = FixMethodName(cd, methodOldName, returnDesc);
+		if (methodNewName == null)
+			return methodOldName;
 		
-		String classNewName = FixClassName(classOldName);
-		ClassDetails classDetails = oldClassNames.get(classOldName);
-		String classNewLocalName = GetClassLocalName(classNewName);
-
-		if (classDetails.oldFieldNames.containsKey(methodReturnDesc + methodOldName))
-			return classDetails.oldFieldNames.get(methodReturnDesc + methodOldName).newName;
-
-		String methodNewName = methodOldName;
-		if (NeedsRenamed(methodOldName)) {
-			methodNewName = "method_" + methodOldName;
-			
-			String tmpMethodName;
-			for(int idx = 0; ; idx++) {
-				tmpMethodName = methodNewName;
-				if (idx > 0)
-					tmpMethodName += idx;
-				
-				if (tmpMethodName.equals(classNewLocalName))
-					continue;
-
-				if (classDetails.newMethodNames.containsKey(tmpMethodName)) {
-					ClassMemberDetails tmp = classDetails.newMethodNames.get(tmpMethodName);
-					if (tmp.returnDesc.equals(methodReturnDesc))
-						return tmp.newName;
-					continue;
-				}
-				break;
-			}
-			methodNewName = tmpMethodName;
+		return methodNewName;
+	}
+	
+	private String FixMethodName(ClassDetails cd, String methodOldName, String returnDesc)
+	{	
+		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "!" + returnDesc))
+			return cd.methodOldToNewNameMapping.get(methodOldName + "!" + returnDesc);
+		
+		if ((cd.superName != null) && classes.containsKey(cd.superName)) {
+			String tmp = FixMethodName(classes.get(cd.superName), methodOldName, returnDesc);
+			if (tmp != null)
+				return tmp;
 		}
 		
-		classDetails.AddMethod(methodOldName, methodNewName, methodReturnDesc);
-		return methodNewName;
+		for(String intf: cd.interfaces) {
+			if (!classes.containsKey(intf))
+				continue;
+			
+			String tmp = FixMethodName(classes.get(intf), methodOldName, returnDesc);
+			if (tmp != null)
+				return tmp;
+		}
+		
+		return null;		
 	}
 	
 	public String FixMethodDescriptor(String desc) {
@@ -279,7 +383,7 @@ public class ClassProcessor {
 		for(Type arg: Type.getArgumentTypes(desc)) {
 			returnDescSb.append(FixDescriptor(arg.getDescriptor()));
 		}
-		return "(" + returnDescSb.toString() + ")" + returnType.toString();		
+		return "(" + returnDescSb.toString() + ")" + returnType.toString();
 	}
 
 	public String FixDescriptor(String desc)
@@ -335,10 +439,12 @@ public class ClassProcessor {
 		
 		SignatureReader reader = new SignatureReader(signature);
 		SignatureWriter writer = new SignatureWriter();
-		DeObfuscatorSignatureVisitor deob = new DeObfuscatorSignatureVisitor(this, writer);
+		Phase3DeObfuscatorSignatureVisitor deob = new Phase3DeObfuscatorSignatureVisitor(this, writer);
 		reader.accept(deob);
 		return writer.toString();
 	}
+	
+	
 	
 	public boolean NeedsRenamed(String testName)
 	{
@@ -356,7 +462,7 @@ public class ClassProcessor {
         return badNames.containsKey(testName);
 	}
 	
-    public static String GetClassLocalName(String fullName)
+    public String GetClassLocalName(String fullName)
     {
         if (fullName.contains("/"))
             return fullName.substring(fullName.lastIndexOf('/') + 1);
@@ -364,7 +470,7 @@ public class ClassProcessor {
             return fullName;
     }
 	
-    public static String GetClassPathName(String fullName)
+    public String GetClassPathName(String fullName)
     {
         if (fullName.contains("/"))
             return fullName.substring(0, fullName.lastIndexOf('/'));
