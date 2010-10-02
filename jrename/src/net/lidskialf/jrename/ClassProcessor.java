@@ -160,17 +160,13 @@ public class ClassProcessor {
 		if (inheritedOnly)
 			return null;
 		
-		String methodNewName = methodOldName;
 		if (NeedsRenamed(methodOldName))
-			methodNewName = "method_" + methodOldName;
-		return SetUniqueMethodName(cd, methodOldName, methodNewName, desc);
+			return SetUniqueMethodName(cd, methodOldName, "method_" + methodOldName, desc);
+		else
+			return SetMethodName(cd, methodOldName, methodOldName, desc);
 	}
 
 	private String SetMethodName(ClassDetails cd, String methodOldName, String methodNewName, String desc) {
-		if (cd.methodNewNameUsed.containsKey(methodNewName)) {
-			throw new RuntimeException("Duplicate method entry found: " + cd.name + " " + methodOldName + " " + methodNewName + " " + desc);
-		}
-			
 		cd.methodOldToNewNameMapping.put(methodOldName + "()" + desc, methodNewName);
 		cd.methodNewNameUsed.put(methodNewName, true);
 		
