@@ -17,7 +17,7 @@ public class ClassDetails {
 	
 	public List<ClassMemberDetails> methods = new ArrayList<ClassMemberDetails>();
 	public HashMap<String, String> methodOldToNewNameMapping = new HashMap<String, String>();
-	public HashMap<String, String> methodNewNameToReturnDescMapping = new HashMap<String, String>();
+	public HashMap<String, Boolean> methodNewNameUsed = new HashMap<String, Boolean>();
 
 	public ClassDetails(String name, String superName, String[] interfaces, boolean isInterface) {
 		this.name = name;

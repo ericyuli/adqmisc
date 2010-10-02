@@ -83,20 +83,37 @@ public class ClassProcessor {
 			classOldToNewNames.put(innerClass.toClassName, newName);
 		}
 		
-		/* now, go through all loaded classes and sort out the names of fields and methods */
+		/* now, go through all loaded classes and sort out the names of fields and methods of overridden members only */
 		for(String oldClassFullName: classes.keySet()) {
 			ClassDetails cd = classes.get(oldClassFullName);
 			
 			for(ClassMemberDetails field: cd.fields) {
 				if (cd.fieldOldToNewNameMapping.containsKey(field.name))
 					continue;				
-				RenameField(cd, field.name);
+				RenameField(cd, field.name, true);
 			}
 			
 			for(ClassMemberDetails method: cd.methods) {
-				if (cd.methodOldToNewNameMapping.containsKey(method.name + "!" + method.returnDesc))
+				if (cd.methodOldToNewNameMapping.containsKey(method.name + "()" + method.desc))
 					continue;
-				RenameMethod(cd, method.name, method.returnDesc);
+				RenameMethod(cd, method.name, method.desc, true);
+			}
+		}
+		
+		/* now, go through all loaded classes and sort out the names of fields and methods of non-overridden members */
+		for(String oldClassFullName: classes.keySet()) {
+			ClassDetails cd = classes.get(oldClassFullName);
+			
+			for(ClassMemberDetails field: cd.fields) {
+				if (cd.fieldOldToNewNameMapping.containsKey(field.name))
+					continue;				
+				RenameField(cd, field.name, false);
+			}
+			
+			for(ClassMemberDetails method: cd.methods) {
+				if (cd.methodOldToNewNameMapping.containsKey(method.name + "()" + method.desc))
+					continue;
+				RenameMethod(cd, method.name, method.desc, false);
 			}
 		}
 	}
@@ -117,16 +134,16 @@ public class ClassProcessor {
 	
 	
 	
-	private String RenameMethod(ClassDetails cd, String methodOldName, String methodReturnDesc) {
+	private String RenameMethod(ClassDetails cd, String methodOldName, String desc, boolean inheritedOnly) {
 		// if its already been renamed in this class, just return that
-		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "!" + methodReturnDesc))
-			return cd.methodOldToNewNameMapping.get(methodOldName + "!" + methodReturnDesc);
+		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "()" + desc))
+			return cd.methodOldToNewNameMapping.get(methodOldName + "()" + desc);
 		
 		// if there is a superclass, traverse upwards checking if we've already renamed it
 		if ((cd.superName != null) && classes.containsKey(cd.superName)) {	
-			String methodNewName = RenameMethod(classes.get(cd.superName), methodOldName, methodReturnDesc);
+			String methodNewName = RenameMethod(classes.get(cd.superName), methodOldName, desc, false);
 			if (methodNewName != null)
-				return SetMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+				return SetMethodName(cd, methodOldName, methodNewName, desc);
 		}
 		
 		// if there are interfaces, traverse upwards checking if we've already renamed it
@@ -134,46 +151,42 @@ public class ClassProcessor {
 			if (!classes.containsKey(intf))
 				continue;
 			
-			String methodNewName = RenameMethod(classes.get(intf), methodOldName, methodReturnDesc);
+			String methodNewName = RenameMethod(classes.get(intf), methodOldName, desc, false);
 			if (methodNewName != null)
-				return SetMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+				return SetMethodName(cd, methodOldName, methodNewName, desc);
 		}
 		
 		// otherwise, rename it!
+		if (inheritedOnly)
+			return null;
+		
 		String methodNewName = methodOldName;
 		if (NeedsRenamed(methodOldName))
 			methodNewName = "method_" + methodOldName;
-		return SetUniqueMethodName(cd, methodOldName, methodNewName, methodReturnDesc);
+		return SetUniqueMethodName(cd, methodOldName, methodNewName, desc);
 	}
 
-	private String SetMethodName(ClassDetails cd, String methodOldName, String methodNewName, String methodReturnDesc) {
-		if (cd.methodNewNameToReturnDescMapping.containsKey(methodNewName)) {
-			if (!cd.methodNewNameToReturnDescMapping.get(methodNewName).equals(methodReturnDesc))
-				throw new RuntimeException("Duplicate method entry found: " + cd.name + " " + methodOldName + " " + methodNewName + " " + methodReturnDesc);
-			return methodNewName;
+	private String SetMethodName(ClassDetails cd, String methodOldName, String methodNewName, String desc) {
+		if (cd.methodNewNameUsed.containsKey(methodNewName)) {
+			throw new RuntimeException("Duplicate method entry found: " + cd.name + " " + methodOldName + " " + methodNewName + " " + desc);
 		}
 			
-		cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodNewName);
-		cd.methodNewNameToReturnDescMapping.put(methodNewName, methodReturnDesc);
+		cd.methodOldToNewNameMapping.put(methodOldName + "()" + desc, methodNewName);
+		cd.methodNewNameUsed.put(methodNewName, true);
 		
 		return methodNewName;
 	}
 	
-	private String SetUniqueMethodName(ClassDetails cd, String methodOldName, String methodNewName, String methodReturnDesc) {		
+	private String SetUniqueMethodName(ClassDetails cd, String methodOldName, String methodNewName, String desc) {		
 		int idx = 0;
 		String methodUniqueNewName = methodNewName;
 		while(true) {
 			if (idx > 0)
 				methodUniqueNewName = methodNewName + idx;
-			if (!cd.methodNewNameToReturnDescMapping.containsKey(methodUniqueNewName)) {
-				cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodUniqueNewName);
-				cd.methodNewNameToReturnDescMapping.put(methodUniqueNewName, methodReturnDesc);
+			if (!cd.methodNewNameUsed.containsKey(methodUniqueNewName)) {
+				cd.methodOldToNewNameMapping.put(methodOldName + "()" + desc, methodUniqueNewName);
+				cd.methodNewNameUsed.put(methodUniqueNewName, true);
 				break;
-			} else {
-				if (methodReturnDesc.equals(cd.methodNewNameToReturnDescMapping.get(methodUniqueNewName))) {
-					cd.methodOldToNewNameMapping.put(methodOldName + "!" + methodReturnDesc, methodUniqueNewName);
-					break;
-				}
 			}
 			
 			idx++;
@@ -185,14 +198,14 @@ public class ClassProcessor {
 	
 	
 	
-	private String RenameField(ClassDetails cd, String fieldOldName) {
+	private String RenameField(ClassDetails cd, String fieldOldName, boolean inheritedOnly) {
 		// if its already been renamed in this class, just return that
 		if (cd.fieldOldToNewNameMapping.containsKey(fieldOldName))
 			return cd.fieldOldToNewNameMapping.get(fieldOldName);
 		
 		// if there is a superclass, traverse upwards checking if we've already renamed it
 		if ((cd.superName != null) && classes.containsKey(cd.superName)) {	
-			String fieldNewName = RenameField(classes.get(cd.superName), fieldOldName);
+			String fieldNewName = RenameField(classes.get(cd.superName), fieldOldName, false);
 			if (fieldNewName != null)
 				return SetFieldName(cd, fieldOldName, fieldNewName);
 		}
@@ -202,12 +215,15 @@ public class ClassProcessor {
 			if (!classes.containsKey(intf))
 				continue;
 			
-			String fieldNewName = RenameField(classes.get(intf), fieldOldName);
+			String fieldNewName = RenameField(classes.get(intf), fieldOldName, false);
 			if (fieldNewName != null)
 				return SetFieldName(cd, fieldOldName, fieldNewName);
 		}
 		
 		// otherwise, rename it!
+		if (inheritedOnly)
+			return null;
+		
 		String fieldNewName = fieldOldName;
 		if (NeedsRenamed(fieldOldName))
 			fieldNewName = "field_" + fieldOldName;
@@ -289,12 +305,12 @@ public class ClassProcessor {
 		return classDetails.AddField(fieldName, fieldDesc, value);
 	}
 	
-	public ClassMemberDetails AddMethod(String className, String methodName, String returnDesc, String argsDesc) {
+	public ClassMemberDetails AddMethod(String className, String methodName, String desc) {
 		ClassDetails classDetails = classes.get(className);
 		if (classDetails == null)
 			throw new RuntimeException("Attempt to add field to nonexistant class: " + className);
 		
-		return classDetails.AddMethod(methodName, returnDesc, argsDesc);
+		return classDetails.AddMethod(methodName, GetMethodReturnDesc(desc), GetMethodArgsDesc(desc));
 	}
 
 	
@@ -345,22 +361,21 @@ public class ClassProcessor {
 		ClassDetails cd = classes.get(classOldName);
 		if (cd == null)
 			return methodOldName;
-		String returnDesc = FixDescriptor(Type.getReturnType(desc).getDescriptor());
 		
-		String methodNewName = FixMethodName(cd, methodOldName, returnDesc);
+		String methodNewName = FixMethodName(cd, methodOldName, desc);
 		if (methodNewName == null)
 			return methodOldName;
 		
 		return methodNewName;
 	}
 	
-	private String FixMethodName(ClassDetails cd, String methodOldName, String returnDesc)
+	private String FixMethodName(ClassDetails cd, String methodOldName, String desc)
 	{	
-		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "!" + returnDesc))
-			return cd.methodOldToNewNameMapping.get(methodOldName + "!" + returnDesc);
+		if (cd.methodOldToNewNameMapping.containsKey(methodOldName + "()" + desc))
+			return cd.methodOldToNewNameMapping.get(methodOldName + "()" + desc);
 		
 		if ((cd.superName != null) && classes.containsKey(cd.superName)) {
-			String tmp = FixMethodName(classes.get(cd.superName), methodOldName, returnDesc);
+			String tmp = FixMethodName(classes.get(cd.superName), methodOldName, desc);
 			if (tmp != null)
 				return tmp;
 		}
@@ -369,7 +384,7 @@ public class ClassProcessor {
 			if (!classes.containsKey(intf))
 				continue;
 			
-			String tmp = FixMethodName(classes.get(intf), methodOldName, returnDesc);
+			String tmp = FixMethodName(classes.get(intf), methodOldName, desc);
 			if (tmp != null)
 				return tmp;
 		}
@@ -476,5 +491,19 @@ public class ClassProcessor {
             return fullName.substring(0, fullName.lastIndexOf('/'));
         else 
             return "";
+    }
+    
+    public String GetMethodReturnDesc(String desc)
+    {
+    	return Type.getReturnType(desc).getDescriptor();
+    }
+    
+    public String GetMethodArgsDesc(String desc)
+    {
+		StringBuffer argsDescSb = new StringBuffer();
+		for(Type arg: Type.getArgumentTypes(desc)) {
+			argsDescSb.append(arg.getDescriptor());
+		}
+		return argsDescSb.toString();
     }
 }

@@ -46,14 +46,7 @@ public class Phase1DeObfuscatorClassVisitor implements ClassVisitor {
 									 String desc,
 									 String signature, 
 									 String[] exceptions) {
-		
-		StringBuffer argsDescSb = new StringBuffer();
-		for(Type arg: Type.getArgumentTypes(desc)) {
-			argsDescSb.append(arg.getDescriptor());
-		}
-		String returnDesc = Type.getReturnType(desc).getDescriptor();
-		
-		cp.AddMethod(className, name, returnDesc, argsDescSb.toString());
+		cp.AddMethod(className, name, desc);
 		
 		return cv.visitMethod(access, name, desc, signature, exceptions);
 	}
