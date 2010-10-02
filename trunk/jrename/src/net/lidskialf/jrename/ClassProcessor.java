@@ -156,10 +156,15 @@ public class ClassProcessor {
 				return SetMethodName(cd, methodOldName, methodNewName, desc);
 		}
 		
-		// otherwise, rename it!
+		// return null now if we're not renaming inherited methods
 		if (inheritedOnly)
 			return null;
 		
+		// if a method needs renamed, all bets are off, and we need to ensure it has a unique name.
+		// However, if it doesn't, we assume this is an unobfuscated method, so methods with the same name in the same class are ok
+		// we could do more checking to ensure if the return types match in this case. If they don't then this shows
+		// it actually /has/ been obfuscated, so we'd need to make 'em unique anyway. NeedsRenamed() would need 
+		// to be updated to return true for these to cause 'em to be made unique.
 		if (NeedsRenamed(methodOldName))
 			return SetUniqueMethodName(cd, methodOldName, "method_" + methodOldName, desc);
 		else
