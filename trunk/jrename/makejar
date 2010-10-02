@@ -1,0 +1,3 @@
+#!/bin/sh
+
+jar cfm jrename.jar jrename.manifest -C bin .
