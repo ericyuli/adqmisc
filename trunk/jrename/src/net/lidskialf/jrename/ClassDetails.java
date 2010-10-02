@@ -16,7 +16,6 @@ public class ClassDetails {
 	public HashMap<String, Boolean> fieldNewNameUsed = new HashMap<String, Boolean>();
 	
 	public List<ClassMemberDetails> methods = new ArrayList<ClassMemberDetails>();
-	public HashMap<String, ClassMemberDetails> methodsLookup = new HashMap<String, ClassMemberDetails>();
 	public HashMap<String, String> methodOldToNewNameMapping = new HashMap<String, String>();
 	public HashMap<String, String> methodNewNameToReturnDescMapping = new HashMap<String, String>();
 
@@ -36,7 +35,6 @@ public class ClassDetails {
 	public ClassMemberDetails AddMethod(String methodName, String returnDesc, String argsDesc) {
 		ClassMemberDetails cmd = new ClassMemberDetails(methodName, returnDesc, argsDesc);
 		methods.add(cmd);
-		methodsLookup.put(methodName + "!" + returnDesc + "!" + argsDesc, cmd);
 		return cmd;
 	}
 }
