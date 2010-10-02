@@ -281,12 +281,12 @@ public class ClassProcessor {
 		outerClasses.add(new ClassReference(fromClassName, toClassName, null, false));
 	}
 
-	public ClassMemberDetails AddField(String className, String fieldName, String fieldDesc) {
+	public ClassMemberDetails AddField(String className, String fieldName, String fieldDesc, Object value) {
 		ClassDetails classDetails = classes.get(className);
 		if (classDetails == null)
 			throw new RuntimeException("Attempt to add field to nonexistant class: " + className);
 		
-		return classDetails.AddField(fieldName, fieldDesc);
+		return classDetails.AddField(fieldName, fieldDesc, value);
 	}
 	
 	public ClassMemberDetails AddMethod(String className, String methodName, String returnDesc, String argsDesc) {

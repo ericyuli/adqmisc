@@ -26,8 +26,8 @@ public class ClassDetails {
 		this.isInterface = isInterface;
 	}
 	
-	public ClassMemberDetails AddField(String fieldName, String fieldDesc) {
-		ClassMemberDetails cmd = new ClassMemberDetails(fieldName, fieldDesc);
+	public ClassMemberDetails AddField(String fieldName, String fieldDesc, Object value) {
+		ClassMemberDetails cmd = new ClassMemberDetails(fieldName, fieldDesc, value);
 		fields.add(cmd);
 		return cmd;
 	}
