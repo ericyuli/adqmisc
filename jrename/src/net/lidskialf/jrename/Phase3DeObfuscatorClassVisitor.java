@@ -3,21 +3,21 @@ import java.util.Vector;
 
 import org.objectweb.asm.*;
 
-public class DeObfuscatorClassVisitor implements ClassVisitor {
+public class Phase3DeObfuscatorClassVisitor implements ClassVisitor {
 
-	private String classNewFullName;
 	private String classOriginalFullName;
+	private String classNewName;
 	
 	private ClassVisitor cv;
 	private ClassProcessor cp;
 	
-	public DeObfuscatorClassVisitor(ClassProcessor cp, ClassVisitor cv) {
+	public Phase3DeObfuscatorClassVisitor(ClassProcessor cp, ClassVisitor cv) {
 		this.cp = cp;
 		this.cv = cv;
 	}
 	
-	public String getClassNewFullName() {
-		return classNewFullName;
+	public String getClassNewName() {
+		return classNewName;
 	}
 
 	@Override
@@ -27,11 +27,10 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 					  String signature,
 					  String superName, 
 					  String[] interfaces) {
-		
 		classOriginalFullName = name;
 		
 		name = cp.FixClassName(name);
-		classNewFullName = name;
+		classNewName = name;
 		signature = cp.FixSignature(signature);
 		superName = cp.FixClassName(superName);
 		
@@ -51,7 +50,7 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 								   String signature, 
 								   Object value) {
 		
-		name = cp.FixFieldName(classOriginalFullName, name, desc);
+		name = cp.FixFieldName(classOriginalFullName, name);
 		desc = cp.FixDescriptor(desc);
 		signature = cp.FixSignature(signature);
 		
@@ -76,20 +75,15 @@ public class DeObfuscatorClassVisitor implements ClassVisitor {
 			exceptions = newExceptions.toArray(new String[newExceptions.size()]);
 		}		
 		
-		return new DeObfuscatorMethodVisitor(cp, access, cv.visitMethod(access, name, desc, signature, exceptions));
+		return new Phase3DeObfuscatorMethodVisitor(cp, access, cv.visitMethod(access, name, desc, signature, exceptions));
 	}
 
 	@Override
 	public void visitInnerClass(String name, String outerName, String innerName, int access) {
-		String oldName = name;
 		name = cp.FixClassName(name);
 		
 		if (outerName != null)
-			outerName = cp.FixClassName(outerName);		
-		if ((innerName != null) && (!cp.NeedsRenamed(innerName))) {
-			name = outerName + "$" + innerName;
-			cp.SetClassName(oldName, name);
-		}
+			outerName = cp.FixClassName(outerName);
 		
 		cv.visitInnerClass(name, outerName, innerName, access);
 	}

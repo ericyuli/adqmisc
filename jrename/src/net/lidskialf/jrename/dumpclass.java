@@ -7,6 +7,8 @@ import org.objectweb.asm.util.*;
 public class dumpclass {
 	public static void main(String[] args) {
 		
+		System.out.println(Boolean.TRUE.toString());
+		
 		try {
 			ClassReader reader = new ClassReader(new FileInputStream(args[0]));
 			ClassWriter writer = new ClassWriter(0);
