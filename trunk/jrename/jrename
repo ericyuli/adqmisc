@@ -1,0 +1,3 @@
+#!/bin/sh
+
+java -cp bin:asm-debug-all-3.3.jar net.lidskialf.jrename.jrename $1 $2
