@@ -156,7 +156,7 @@ public class ClassProcessor {
 				return SetMethodName(cd, methodOldName, methodNewName, desc);
 		}
 		
-		// return null now if we're not renaming inherited methods
+		// return null now if we're only renaming inherited methods
 		if (inheritedOnly)
 			return null;
 		

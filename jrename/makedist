@@ -1,0 +1,13 @@
+#!/bin/sh
+
+VERSION=0.1
+
+./makejar
+
+rm -fr dist/jrename
+rm -f jrename-$VERSION.zip
+
+mkdir -p dist/jrename
+cp jrename asm-all-3.3.jar jrename.jar dist/jrename
+
+(cd dist; zip -r ../jrename-$VERSION.zip .)
