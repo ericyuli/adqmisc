@@ -35,7 +35,7 @@ public class Phase1DeObfuscatorClassVisitor implements ClassVisitor {
 								   String signature, 
 								   Object value) {
 		
-		cp.AddField(className, name, desc);
+		cp.AddField(className, name, desc, value);
 		
 		return cv.visitField(access, name, desc, signature, value);
 	}
