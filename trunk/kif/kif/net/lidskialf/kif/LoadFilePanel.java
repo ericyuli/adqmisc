@@ -11,11 +11,11 @@ import org.kwt.ui.KWTSelectableLabel;
 import com.amazon.kindle.kindlet.ui.KBoxLayout;
 import com.amazon.kindle.kindlet.ui.KPanel;
 
-public class FileSelectorPanel extends KPanel {
+public class LoadFilePanel extends KPanel {
 
 	private static final long serialVersionUID = 8134629461211328457L;
 	
-	public FileSelectorPanel(final KifKindlet kindlet, final String selectionType, final File basePath, FilenameFilter filter) {
+	public LoadFilePanel(final KifKindlet kindlet, final String selectionType, final File basePath, FilenameFilter filter) {
 	
 		this.setLayout(new KBoxLayout(this, KBoxLayout.Y_AXIS));
 		
