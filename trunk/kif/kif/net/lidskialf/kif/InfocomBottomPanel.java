@@ -32,6 +32,8 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 	private int lineHeight = 0;
 	private int intercharacterSpaceBuffer = 0;
 	
+	private boolean userInput = false;
+	
 	private KifKindlet kindlet;
 
 	
@@ -59,7 +61,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 				nextNewlineIdx = toAppendLength;
 			
 			// append string to current line
-			curLine.append(toAppend.substring(firstCharIdx, nextNewlineIdx - firstCharIdx - 1));
+			curLine.append(toAppend.substring(firstCharIdx, nextNewlineIdx));
 			
 			// hit end of string => done!
 			if (nextNewlineIdx < toAppendLength) {
@@ -72,17 +74,25 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		// clear the user input buffer
 		setText("");
 
+		recalc();
 		repaint();
 	}
 	
 	public void textValueChanged(TextEvent txt) {
 		String userInputText = getText();
-		curLine.setUserText(userInputText);
+		if ((!userInput) && (userInputText.length() == 0))
+			return;
 		
-		// if it ended in \n, or we're in character mode submit it to the VM!
+		// if it ended in \n, or we're in character mode, submit it to the VM!
 		if (userInputText.endsWith("\n") || kindlet.inCharMode()) {
 			kindlet.input(userInputText);
+			curLine.setUserText("");
+			appendString(userInputText);
+			userInput = false;
 			setText("");
+		} else {
+			curLine.setUserText(userInputText);
+			userInput = true;
 		}
 		
 		recalc();
@@ -119,13 +129,15 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		if ((screenWidth == 0) || (linesPerPage == 0))
 			return;
 
+		// FIXME: doesn't cope well with char-by-char
+		
 		// first of all we calculate the width of the screen lines each textLine would require for new or dirty lines
 		for(int textLineIdx=0; textLineIdx < textLines.size(); textLineIdx++) {
 			LineDetails ld = (LineDetails) textLines.get(textLineIdx);
 			
 			if (!ld.screenLineLengthsDirty)
 				continue;
-			
+
 			int charIdx = 0;
 			if (ld.screenLineLengths.size() > 0)
 				charIdx = ((Integer) ld.screenLineLengths.get(ld.screenLineLengths.size() - 1)).intValue();
@@ -133,16 +145,21 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			String s = ld.toString();
 			int sLength = s.length();
 			int lineWidth = 0;
+			boolean addFinalLength = true;
 			for(; charIdx < sLength; charIdx++) {
 				int charWidth = fontMetrics.charWidth(s.charAt(charIdx));
 				if ((lineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth) {
 					ld.screenLineLengths.add(new Integer(charIdx));
 					lineWidth = 0;
+					addFinalLength = false;
 				} else {
 					lineWidth += charWidth;
+					addFinalLength = true;
 				}
 			}
-			
+			if (addFinalLength)
+				ld.screenLineLengths.add(new Integer(charIdx));
+
 			ld.screenLineLengthsDirty = false;
 		}
 		
@@ -160,39 +177,58 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		// delete leading lines which are now off the top of the page
 		while(textLineIdx-- > 0)
 			textLines.remove(0);
+		
+		
+		kindlet.getLogger().error("RECALC -----------------");
+		for(int i=0; i< textLines.size(); i++) {
+			LineDetails ld = (LineDetails) textLines.get(i);
+			
+			kindlet.getLogger().error("" + ld.screenLineFirst + " " + ld.screenLineLengths + " " + ld.screenLineAfter());
+			kindlet.getLogger().error(ld.toString());
+		}
 	}
 	
 
 	public void paint(Graphics g) {
+		if (linesPerPage == 0)
+			return;
+		
 		Rectangle clipBounds = g.getClipBounds();
+		g.setColor(Color.BLACK);
 		
 		// figure out what screenlines we're drawing
 		int redrawCurScreenLine = clipBounds.y / lineHeight;
-		int redrawLastScreenLine = (clipBounds.y + clipBounds.height) / lineHeight;
+		int redrawLastScreenLine = ((clipBounds.y + clipBounds.height) / lineHeight) + 1;
 		
-		// figure out the LineDetails we should start drawing from
-		int textLineDetailsIdx;
-		for(textLineDetailsIdx = 0; textLineDetailsIdx < textLines.size(); textLineDetailsIdx++) {
-			LineDetails curLineDetails = (LineDetails) textLines.get(textLineDetailsIdx);
-			if (redrawCurScreenLine < curLineDetails.screenLineAfter())
-				break;
-		}
-
 		// draw lines
-		g.setColor(Color.BLACK);
+		int startCharIdx = 0;
+		int curLineDetailsIdx = 0;
+		LineDetails curLineDetails = (LineDetails) textLines.get(curLineDetailsIdx++);
+		char[] stringChars = curLineDetails.toString().toCharArray();
 		int y = ((redrawCurScreenLine + 1) * lineHeight) - fontMetrics.getDescent();
-		while(redrawCurScreenLine <= redrawLastScreenLine) {
-			if (textLineDetailsIdx >= textLines.size())
-				break;
-			
-			LineDetails curLineDetails = (LineDetails) textLines.get(textLineDetailsIdx++);
-			int screenLinesCount = curLineDetails.screenLineLengths.size();
-			for(int localLineIdx = redrawCurScreenLine - curLineDetails.screenLineFirst; localLineIdx < screenLinesCount; localLineIdx++) {
-				
-				char[] stringChars = curLineDetails.toString().toCharArray();
-				g.drawChars(stringChars, 0, stringChars.length, 0, y);
-				y += lineHeight;
+		for(int lineIdx = redrawCurScreenLine; lineIdx < redrawLastScreenLine; lineIdx++) {
+			// keep looping if we're before the first line
+			if (lineIdx < curLineDetails.screenLineFirst)
+				continue;
+
+			// figure out the local line and move to the next LineDetails
+			int localLineIdx = lineIdx - curLineDetails.screenLineFirst;
+			if (localLineIdx >= curLineDetails.screenLineLengths.size()) {
+				if (curLineDetailsIdx >= textLines.size())
+					break;
+				curLineDetails = (LineDetails) textLines.get(curLineDetailsIdx++);
+				stringChars = curLineDetails.toString().toCharArray();
+				localLineIdx = 0;
+				startCharIdx = 0;
 			}
+			
+			// draw  the string
+			int lastCharIdx = ((Integer) curLineDetails.screenLineLengths.get(localLineIdx)).intValue();
+			g.drawChars(stringChars, startCharIdx, lastCharIdx - startCharIdx, 0, y);
+			
+			// update for next iteration
+			y += lineHeight;
+			startCharIdx = lastCharIdx;
 		}
 	}
 	

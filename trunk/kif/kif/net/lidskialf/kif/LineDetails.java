@@ -5,9 +5,9 @@ import java.util.ArrayList;
 public class LineDetails {
 	private StringBuffer sb = new StringBuffer();
 	private String s = null;
-	private int nonUserTextLength = 0;
+	public int nonUserTextLength = 0;
 
-	public int screenLineFirst = -1;
+	public int screenLineFirst = 0;
 	public boolean screenLineLengthsDirty = true;
 	public ArrayList screenLineLengths = new ArrayList();
 	
@@ -33,11 +33,14 @@ public class LineDetails {
 	
 	public void setUserText(String s) {
 		sb.setLength(nonUserTextLength);
-		append(s);
+		sb.append(s);
+		this.s = null;
+		this.screenLineLengthsDirty = true;
+		this.screenLineLengths.clear();
 	}
 	
 	public int screenLineAfter() {
-		return screenLineFirst + screenLineLengths.size() + 1;
+		return screenLineFirst + screenLineLengths.size();
 	}
 	
 	public void clearLines() {
