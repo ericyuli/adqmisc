@@ -50,7 +50,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		int toAppendLength = toAppend.length();
 		if (toAppendLength == 0)
 			return;
-		
+
 		// split string up at newlines and add into the textLines list
 		int firstCharIdx = 0;
 		int nextNewlineIdx = 0;
@@ -62,6 +62,8 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			
 			// append string to current line
 			curLine.append(toAppend.substring(firstCharIdx, nextNewlineIdx));
+			if (curLine.screenLineLengths.size() > 0)
+				curLine.screenLineLengths.remove(curLine.screenLineLengths.size() - 1);
 			
 			// hit end of string => done!
 			if (nextNewlineIdx < toAppendLength) {
@@ -71,11 +73,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			}
 		}
 		
-		// clear the user input buffer
-		setText("");
-
-		recalc();
-		repaint();
+		recalcAndRepaint();
 	}
 	
 	public void textValueChanged(TextEvent txt) {
@@ -83,9 +81,14 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		if ((!userInput) && (userInputText.length() == 0))
 			return;
 		
+		// FIXME: fix this
+
 		// if it ended in \n, or we're in character mode, submit it to the VM!
 		if (userInputText.endsWith("\n") || kindlet.inCharMode()) {
 			kindlet.input(userInputText);
+			
+			kindlet.getLogger().error("" + userInputText);
+			
 			curLine.setUserText("");
 			appendString(userInputText);
 			userInput = false;
@@ -95,8 +98,12 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			userInput = true;
 		}
 		
+		recalcAndRepaint(); // FIXME: optimise
+	}
+	
+	private void recalcAndRepaint() {
 		recalc();
-		repaint();		// FIXME: repaint optimisation
+		repaint();
 	}
 	
 	public void clear() {
@@ -106,8 +113,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		
 		setText("");
 		
-		recalc();
-		repaint();
+		recalcAndRepaint();
 	}
 	
 	public void setFont(Font f) {
@@ -120,16 +126,13 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		
 		for(int i=0; i< textLines.size(); i++)
 			((LineDetails) textLines.get(i)).clearLines();
-		recalc();
-		repaint();
+		recalcAndRepaint();
 	}
 	
 	private void recalc() {
 		int screenWidth = getWidth();
 		if ((screenWidth == 0) || (linesPerPage == 0))
 			return;
-
-		// FIXME: doesn't cope well with char-by-char
 		
 		// first of all we calculate the width of the screen lines each textLine would require for new or dirty lines
 		for(int textLineIdx=0; textLineIdx < textLines.size(); textLineIdx++) {
@@ -177,15 +180,6 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		// delete leading lines which are now off the top of the page
 		while(textLineIdx-- > 0)
 			textLines.remove(0);
-		
-		
-		kindlet.getLogger().error("RECALC -----------------");
-		for(int i=0; i< textLines.size(); i++) {
-			LineDetails ld = (LineDetails) textLines.get(i);
-			
-			kindlet.getLogger().error("" + ld.screenLineFirst + " " + ld.screenLineLengths + " " + ld.screenLineAfter());
-			kindlet.getLogger().error(ld.toString());
-		}
 	}
 	
 
@@ -221,11 +215,11 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 				localLineIdx = 0;
 				startCharIdx = 0;
 			}
-			
+
 			// draw  the string
 			int lastCharIdx = ((Integer) curLineDetails.screenLineLengths.get(localLineIdx)).intValue();
 			g.drawChars(stringChars, startCharIdx, lastCharIdx - startCharIdx, 0, y);
-			
+
 			// update for next iteration
 			y += lineHeight;
 			startCharIdx = lastCharIdx;
@@ -238,8 +232,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 
 		for(int i=0; i< textLines.size(); i++)
 			((LineDetails) textLines.get(i)).clearLines();
-		recalc();
-		repaint();
+		recalcAndRepaint();
 	}
 	
 	public void componentShown(ComponentEvent e) {

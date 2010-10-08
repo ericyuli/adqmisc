@@ -210,6 +210,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	    executionControl.setDefaultColors(ScreenModel.COLOR_WHITE, ScreenModel.COLOR_BLACK);
 	    updateScreenSize();
 
+	    input = null;
 	    new Thread(this).start();
 	}
 
