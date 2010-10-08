@@ -1,0 +1,4 @@
+#!/bin/sh
+
+./makekindlet
+scp kif.azw2 root@kindle-adq:/mnt/us/documents

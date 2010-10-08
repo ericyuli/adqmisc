@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Main-Class: net.lidskialf.kif.KifKindlet
+Implementation-Title: kif
+Implementation-Version: 1
+Implementation-Vendor: Andrew de Quincey
