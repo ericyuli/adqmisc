@@ -7,7 +7,6 @@
 	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/log4j-1.2.15.jar"/>
 	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/xercesImpl.jar"/>
 	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/xml-apis.jar"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/kwt"/>
 	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/basis.jar"/>
 	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/jsr217/Optimized_nosym/lib/btclasses.zip"/>
 	<classpathentry kind="output" path="bin"/>
