@@ -15,13 +15,13 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.io.Reader;
 import java.io.Writer;
-import java.util.ArrayList;
 
 import org.apache.log4j.*;
 
@@ -154,7 +154,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	private void showGameSelector() {
-		showSubComponent(new FileSelectorPanel(this, "game", ctx.getHomeDirectory(), new FilenameFilter() {
+		showSubComponent(new LoadFilePanel(this, "game", ctx.getHomeDirectory(), new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
 				File cur = new File(dir, filename);
 				if (cur.isDirectory())
@@ -320,14 +320,42 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 
 	public boolean saveFormChunk(WritableFormChunk formchunk) {
-		// FIXME: popup a save dialog
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+		
+		showSubComponent(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
 
-		// TODO Auto-generated method stub
-		return false;
+				return true;
+			}
+		}), "Select or enter filename...");
+
+		RandomAccessFile raf = null;
+		synchronized (this) {
+			try {
+				this.wait();
+				if (selectedFile == null)
+					return false;
+
+		        raf = new RandomAccessFile(selectedFile, "rw");  
+		        raf.write(formchunk.getBytes());
+		        return true;
+			} catch (Throwable t) {
+				return false;
+			} finally {
+				if (raf != null) try { raf.close(); } catch (Exception ex) { }
+			}
+		}
 	}
 
 	public FormChunk retrieveFormChunk() {
-		showSubComponent(new FileSelectorPanel(this, "savegame", ctx.getHomeDirectory(), new FilenameFilter() {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+
+		showSubComponent(new LoadFilePanel(this, "savegame", subDir, new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
 				File cur = new File(dir, filename);
 				if (cur.isDirectory())
@@ -357,14 +385,40 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public Writer getTranscriptWriter() {
-		// FIXME: popup a save dialog
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+		
+		showSubComponent(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
 
-		// TODO Auto-generated method stub
-		return null;
+				return true;
+			}
+		}), "Select or enter filename...");
+
+		RandomAccessFile raf = null;
+		synchronized (this) {
+			try {
+				this.wait();
+				if (selectedFile == null)
+					return null;
+
+				return new FileWriter(selectedFile);
+			} catch (Throwable t) {
+				return null;
+			} finally {
+				if (raf != null) try { raf.close(); } catch (Exception ex) { }
+			}
+		}
 	}
 
 	public Reader getInputStreamReader() {
-		showSubComponent(new FileSelectorPanel(this, "inputstream", ctx.getHomeDirectory(), new FilenameFilter() {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+
+		showSubComponent(new LoadFilePanel(this, "inputstream", subDir, new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
 				File cur = new File(dir, filename);
 				if (cur.isDirectory())
