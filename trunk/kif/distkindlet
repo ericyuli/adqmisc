@@ -1,0 +1,8 @@
+#!/bin/sh
+
+./makekindlet
+mkdir -p dist/documents
+mkdir -p dist/developer/kif/work
+cp kif.azw2 documents/
+cp minizork.z3 dist/developer/kif/work
+cp curses.z5 dist/developer/kif/work
