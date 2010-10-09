@@ -80,14 +80,10 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 		String userInputText = getText();
 		if ((!userInput) && (userInputText.length() == 0))
 			return;
-		
-		// FIXME: fix this
 
 		// if it ended in \n, or we're in character mode, submit it to the VM!
 		if (userInputText.endsWith("\n") || kindlet.inCharMode()) {
 			kindlet.input(userInputText);
-			
-			kindlet.getLogger().error("" + userInputText);
 			
 			curLine.setUserText("");
 			appendString(userInputText);
