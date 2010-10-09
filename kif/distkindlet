@@ -1,8 +1,12 @@
 #!/bin/sh
 
+VERSION=0.1
+
 ./makekindlet
+rm -fr dist
 mkdir -p dist/documents
 mkdir -p dist/developer/kif/work
-cp kif.azw2 documents/
+cp kif.azw2 dist/documents/
 cp minizork.z3 dist/developer/kif/work
 cp curses.z5 dist/developer/kif/work
+(cd dist ; zip -r kif-$VERSION.zip . )
