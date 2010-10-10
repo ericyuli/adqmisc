@@ -1,5 +1,6 @@
 package net.lidskialf.kif;
 
+import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Image;
@@ -46,6 +47,7 @@ import org.zmpp.windowing.BufferedScreenModel.StatusLineListener;
 
 public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, NativeImageFactory, SaveGameDataStore, IOSystem, Runnable {
 	private Container root;
+	private Container content; 
 
 	private KindletContext ctx;
 
@@ -87,6 +89,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.screenModel.addStatusLineListener(this);
 		this.screenModel.addScreenModelListener(this.gameComponent);
 
+		initRootContent();
 		showMainComponent();
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
@@ -113,9 +116,16 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private Component createNoGameLoaded() {
 		KLabelMultiline label = new KLabelMultiline("Kif - an Infocom interpreter for the Kindle\nPlease press Menu to open a game");
-		label.setVerticalAlignment(KTextComponent.TOP);
-		label.setMargin(new Insets(inset, inset, inset, inset));
 		return label;
+	}
+
+	private void initRootContent() {
+		root.add(KBox.createHorizontalStrut(inset), BorderLayout.EAST);
+		root.add(KBox.createHorizontalStrut(inset), BorderLayout.WEST);
+		root.add(KBox.createVerticalStrut(inset), BorderLayout.NORTH);
+		
+		content = new KPanel(new BorderLayout());
+		root.add(content, BorderLayout.CENTER);
 	}
 
 	private KMenu createMenu() {
@@ -138,7 +148,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 			public boolean dispatchKeyEvent(KeyEvent e) {
 				// if we're not on the main screen when we get a "BACK", trap it and return to the main game screen
 				if (e.getKeyCode() == KindleKeyCodes.VK_BACK) {
-					if ((root.getComponent(0) != gameComponent) && (root.getComponent(0) != noGameLoadedComponent)) {
+					if ((content.getComponent(0) != gameComponent) && (content.getComponent(0) != noGameLoadedComponent)) {
 						selectedFile = null;
 						synchronized (KifKindlet.this) {
 							KifKindlet.this.notifyAll();
@@ -174,26 +184,22 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	private void showSubComponent(Component component, String title) {
-		root.removeAll();
+		content.removeAll();
 
-		root.add(component);
+		content.add(component, BorderLayout.CENTER);
 		component.requestFocus();
 
 		ctx.setSubTitle(title);
 	}
 
 	private void showMainComponent() {
-		root.removeAll();
+		content.removeAll();
 
 		if (noGameLoadedComponent != null) {
-			root.add(noGameLoadedComponent);
-			noGameLoadedComponent.setLocation(0, 0);
-			noGameLoadedComponent.setSize(root.getWidth(), root.getHeight());
+			content.add(noGameLoadedComponent, BorderLayout.CENTER);
 			noGameLoadedComponent.requestFocus();
 		} else {
-			root.add(gameComponent);
-			gameComponent.setLocation(0, 0);
-			gameComponent.setSize(root.getWidth(), root.getHeight());
+			content.add(gameComponent, BorderLayout.CENTER);
 			gameComponent.focus();
 		}
 
