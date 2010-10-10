@@ -144,23 +144,39 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			String s = ld.toString();
 			int sLength = s.length();
 			int lineWidth = 0;
-			boolean addFinalLength = true;
+			char prevC = '\0';
+			int lastWordStartIdx = -1;
+			int wordWidth = 0;
 			for(; charIdx < sLength; charIdx++) {
 				char c = s.charAt(charIdx);
+				if (prevC == ' ' && c != ' ')
+				{
+					lastWordStartIdx = charIdx;
+					wordWidth = 0;
+				}
 				int charWidth = fontMetrics.charWidth(c);
+				wordWidth += charWidth;
 				boolean lineOverflowsScreenWidth = (lineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth;
 				boolean charCanBeginNewLine = c != ' ';
 				if (lineOverflowsScreenWidth && charCanBeginNewLine) {
-					ld.screenLineLengths.add(new Integer(charIdx));
-					lineWidth = 0;
-					addFinalLength = false;
+					if (lastWordStartIdx == -1)
+					{
+						ld.screenLineLengths.add(new Integer(charIdx));
+						lineWidth = charWidth;
+					}
+					else
+					{
+						ld.screenLineLengths.add(new Integer(lastWordStartIdx));
+						lineWidth = wordWidth;
+					}
+					lastWordStartIdx = -1;
+					wordWidth = 0;
 				} else {
 					lineWidth += charWidth;
-					addFinalLength = true;
 				}
+				prevC = c;
 			}
-			if (addFinalLength)
-				ld.screenLineLengths.add(new Integer(charIdx));
+			ld.screenLineLengths.add(new Integer(charIdx));
 
 			ld.screenLineLengthsDirty = false;
 		}
