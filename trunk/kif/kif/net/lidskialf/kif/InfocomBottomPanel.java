@@ -82,6 +82,7 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			return;
 
 		// if it ended in \n, or we're in character mode, submit it to the VM!
+		// TODO: Fix bug where pressing left then return inserts \n into the input
 		if (userInputText.endsWith("\n") || kindlet.inCharMode()) {
 			kindlet.input(userInputText);
 			
