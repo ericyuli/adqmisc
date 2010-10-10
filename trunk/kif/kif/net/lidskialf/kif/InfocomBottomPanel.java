@@ -146,8 +146,11 @@ public class InfocomBottomPanel extends KTextArea implements ComponentListener, 
 			int lineWidth = 0;
 			boolean addFinalLength = true;
 			for(; charIdx < sLength; charIdx++) {
-				int charWidth = fontMetrics.charWidth(s.charAt(charIdx));
-				if ((lineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth) {
+				char c = s.charAt(charIdx);
+				int charWidth = fontMetrics.charWidth(c);
+				boolean lineOverflowsScreenWidth = (lineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth;
+				boolean charCanBeginNewLine = c != ' ';
+				if (lineOverflowsScreenWidth && charCanBeginNewLine) {
 					ld.screenLineLengths.add(new Integer(charIdx));
 					lineWidth = 0;
 					addFinalLength = false;
