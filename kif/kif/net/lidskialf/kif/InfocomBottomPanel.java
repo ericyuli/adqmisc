@@ -46,7 +46,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 
 	public void appendString(AnnotatedText toAppend) {
 		TextAnnotation ta = toAppend.getAnnotation();
-		String txt = toAppend.getText();
+		String txt = toAppend.getText().replace('\r', '\n');
 
 		int toAppendLength = txt.length();
 		if (toAppendLength == 0)
@@ -76,7 +76,10 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		
 		recalc();
 	}
-
+	
+	public void setUserInputStyle(TextAnnotation ta) {
+		userInputTa = ta;
+	}
 
 	public void textValueChanged(TextEvent txt) {
 		String userInputText = getText();
