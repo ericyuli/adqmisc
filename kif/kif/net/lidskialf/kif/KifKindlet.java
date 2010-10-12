@@ -1,8 +1,10 @@
 package net.lidskialf.kif;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Font;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.KeyEventDispatcher;
@@ -12,7 +14,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
@@ -57,15 +58,26 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private static final int inset = 10;
 
+	private Thread vmThread;
 	private ExecutionControl executionControl;
-	private BufferedScreenModel screenModel;
 	private MachineRunState runState;
 	private StringBuffer inputBuffer = new StringBuffer();
 	private String input = null;
 	private String gameName = null;
 	private File selectedFile = null;
 
+	private static final Color GREEN    = new Color(0, 190, 0);
+	private static final Color RED      = new Color(190, 0, 0);
+	private static final Color YELLOW   = new Color(190, 190, 0);
+	private static final Color BLUE     = new Color(0, 0, 190);
+	private static final Color MAGENTA  = new Color(190, 0, 190);
+	private static final Color CYAN     = new Color(0, 190, 190);
+	
+	private static final int DEFAULT_FOREGROUND = ScreenModel.COLOR_BLACK;
+	private static final int DEFAULT_BACKGROUND = ScreenModel.COLOR_WHITE;
 
+	private Font fixedFont;
+	private Font variableFont;
 
 	public synchronized Logger getLogger() {
 		if (logger != null)
@@ -84,11 +96,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.root = ctx.getRootContainer();
 		this.noGameLoadedComponent = createNoGameLoaded();
 		this.gameComponent = createGameDisplay();
-
-		this.screenModel = new BufferedScreenModel();
-		this.screenModel.addStatusLineListener(this);
-		this.screenModel.addScreenModelListener(this.gameComponent);
-
+		this.vmThread = new Thread(this);
+		this.fixedFont = new Font("monospaced", Font.PLAIN, 14);
+		this.variableFont = new Font("Serif-aa", Font.PLAIN, 21);
+		
 		initRootContent();
 		showMainComponent();
 		installGlobalKeyHandler();
@@ -98,18 +109,285 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	public void start() {
 	}
 
-	public void destroy() {
-	}
-
 	public void stop() {
 	}
 
+	public void destroy() {
+	}
 
+	
+	public Color getAWTForegroundColor(TextAnnotation ta) {
+		Color c;
+		if (ta.isReverseVideo())
+			c = getAWTColor(ta.getBackground(), getDefaultBackground());
+		else
+			c = getAWTColor(ta.getForeground(), getDefaultForeground());
+
+		// Apparently this is the "frotz" trick, which sets the foreground colour slightly brighter; games such as
+		// "Varicella" need it
+		return c.brighter();
+	}
+	
+	public Color getAWTBackgroundColor(TextAnnotation ta) {
+		if (ta.isReverseVideo())
+			return getAWTColor(ta.getForeground(), getDefaultForeground());
+		return getAWTColor(ta.getBackground(), getDefaultBackground());
+	}
+	
+	public Color getAWTColor(int colour, int defaultColour) {
+	    switch (colour) {
+	    case ScreenModel.COLOR_DEFAULT:
+	      return getAWTColor(defaultColour, ScreenModel.UNDEFINED);
+	    case ScreenModel.COLOR_BLACK:
+	      return Color.BLACK;
+	    case ScreenModel.COLOR_RED:
+	      return RED;
+	    case ScreenModel.COLOR_GREEN:
+	      return GREEN;
+	    case ScreenModel.COLOR_YELLOW:
+	      return YELLOW;
+	    case ScreenModel.COLOR_BLUE:
+	      return BLUE;
+	    case ScreenModel.COLOR_MAGENTA:
+	      return MAGENTA;
+	    case ScreenModel.COLOR_CYAN:
+	      return CYAN;
+	    case ScreenModel.COLOR_WHITE:
+	      return Color.WHITE;
+	    case ScreenModel.COLOR_MS_DOS_DARKISH_GREY:
+	      return Color.DARK_GRAY;
+	    default:
+	      break;
+	    }
+	    return Color.BLACK;
+	}
+
+	public Font getAWTFont(TextAnnotation ta) {
+
+		Font font = variableFont;
+		if (ta.isFixed())
+			font = fixedFont;
+
+	    int style = Font.PLAIN;
+	    if (ta.isBold()) style |= Font.BOLD;
+	    if (ta.isItalic()) style |= Font.ITALIC;
+	    return new Font(font.getName(), style, font.getSize());
+	}
 
 	public KindletContext getContext() {
 		return ctx;
 	}
+	
+	public int getDefaultBackground() {
+		int c = DEFAULT_BACKGROUND;
+		if (executionControl != null)
+			c = executionControl.getDefaultBackground();
+		return c;
+	}
+	
+	public int getDefaultForeground() {
+		int c = DEFAULT_FOREGROUND;
+		if (executionControl != null)
+			c = executionControl.getDefaultForeground();
+		return c;
+	}
 
+	public int getNumRowsUpper() {
+		return ((BufferedScreenModel) executionControl.getMachine().getScreen()).getNumRowsUpper();
+	}
+	
+	public void userInput(String i) {
+		synchronized (this) {
+			input = i;
+			this.notifyAll();
+		}
+	}
+
+	public boolean inCharMode() {
+		if ((runState != null) && (runState.isReadChar()))
+			return true;
+		return false;
+	}
+
+	
+	
+	
+
+	public boolean saveFormChunk(WritableFormChunk formchunk) {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+		
+		showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
+
+				return true;
+			}
+		}), "Select or enter filename...");
+
+		RandomAccessFile raf = null;
+		try {
+			this.wait(); // running on VM thread so already locked
+			if (selectedFile == null)
+				return false;
+
+	        raf = new RandomAccessFile(selectedFile, "rw");  
+	        raf.write(formchunk.getBytes());
+	        return true;
+		} catch (Throwable t) {
+			return false;
+		} finally {
+			if (raf != null) try { raf.close(); } catch (Exception ex) { }
+		}
+	}
+
+	public FormChunk retrieveFormChunk() {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+
+		showSelector(new LoadFilePanel(this, "savegame", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
+
+				return true;
+			}
+		}), "Please choose a saved game...");
+
+		RandomAccessFile raf = null;
+		try {
+			this.wait(); // running on VM thread so already locked
+			if (selectedFile == null)
+				return null;
+
+			raf = new RandomAccessFile(selectedFile, "r");
+			byte[] data = new byte[(int) raf.length()];
+			raf.readFully(data);
+			return new DefaultFormChunk(new DefaultMemory(data));
+		} catch (Throwable t) {
+			return null;
+		} finally {
+			if (raf != null) try { raf.close(); } catch (Exception ex) { }
+		}
+	}
+
+	public Writer getTranscriptWriter() {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+		
+		showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
+
+				return true;
+			}
+		}), "Select or enter filename...");
+
+		RandomAccessFile raf = null;
+		try {
+			this.wait(); // running on VM thread so already locked
+			if (selectedFile == null)
+				return null;
+
+			return new FileWriter(selectedFile);
+		} catch (Throwable t) {
+			return null;
+		} finally {
+			if (raf != null) try { raf.close(); } catch (Exception ex) { }
+		}
+	}
+
+	public Reader getInputStreamReader() {
+		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
+		subDir.mkdirs();
+
+		showSelector(new LoadFilePanel(this, "inputstream", subDir, new FilenameFilter() {
+			public boolean accept(File dir, String filename) {
+				File cur = new File(dir, filename);
+				if (cur.isDirectory())
+					return false;
+
+				return true;
+			}
+		}), "Please choose an input file...");
+
+		try {
+			this.wait(); // running on VM thread so already locked
+			if (selectedFile == null)
+				return null;
+			
+			return new FileReader(selectedFile);
+		} catch (Throwable t) {
+			return null;
+		}
+	}
+
+	public void run() {
+		while(true) {
+			try {
+				synchronized (this) {
+					this.wait();
+						
+					if (input != null)
+						runState = executionControl.resumeWithInput(input);
+					else
+						runState = executionControl.run();
+				}
+			} catch (Throwable t) {
+				getLogger().error("", t);
+			}
+		}
+	}
+	
+	public void statusLineUpdated(String objectDescription, String status) {
+		ctx.setSubTitle(objectDescription + " " + status);
+	}
+
+	public void updateStatusScore(String objectName, int score, int steps) {
+		ctx.setSubTitle(objectName + " " + score + "/" + steps);
+	}
+
+	public void updateStatusTime(String objectName, int hours, int minutes) {
+		ctx.setSubTitle(objectName + " " + hours + ":" + minutes);
+	}
+
+	public NativeImage createImage(InputStream inputStream) throws IOException {	
+		// whee, nasty hacking ahead!
+
+		// load the image from the input stream
+		Image img = Toolkit.getDefaultToolkit().createImage(new HackImageSource(inputStream));		
+		if (img == null)
+			return null;
+
+		return new AwtImage(((sun.awt.image.BufferedImagePeer) img).getSubimage(0, 0, img.getWidth(null), img.getHeight(null)));
+	}
+
+
+	public void fileSelected(String selectionType, File selectedFile)
+	{
+		this.selectedFile = selectedFile;
+
+		if (selectionType.equals("game")) {
+			loadGame();
+		} else {
+			showMainComponent();
+			synchronized(this) {
+				this.notifyAll();
+			}
+		}
+	}
+
+	
+	
+	
+	
+	
+	
 	private InfocomGamePanel createGameDisplay() {
 		return new InfocomGamePanel(this);
 	}
@@ -164,7 +442,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	private void showGameSelector() {
-		showSubComponent(new LoadFilePanel(this, "game", ctx.getHomeDirectory(), new FilenameFilter() {
+		showSelector(new LoadFilePanel(this, "game", ctx.getHomeDirectory(), new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
 				File cur = new File(dir, filename);
 				if (cur.isDirectory())
@@ -175,7 +453,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					return false;
 
 				String ext = filename.substring(dotPos+1).toLowerCase();
-				if ((ext.charAt(0) != 'z') && (!ext.equals("blorb")))
+				if ((ext.charAt(0) != 'z') && (!ext.equals("zblorb")))
 					return false;
 
 				return true;
@@ -183,12 +461,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		}), "Please select a game to play");
 	}
 
-	private void showSubComponent(Component component, String title) {
+	private void showSelector(Container container, String title) {
 		content.removeAll();
-
-		content.add(component, BorderLayout.CENTER);
-		component.requestFocus();
-
+		content.add(container, BorderLayout.CENTER);
+		container.getComponent(0).requestFocus();
 		ctx.setSubTitle(title);
 	}
 
@@ -197,27 +473,12 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		if (noGameLoadedComponent != null) {
 			content.add(noGameLoadedComponent, BorderLayout.CENTER);
-			noGameLoadedComponent.requestFocus();
 		} else {
 			content.add(gameComponent, BorderLayout.CENTER);
-			gameComponent.focus();
+			gameComponent.requestFocus();
 		}
 
 		ctx.setSubTitle("");
-	}
-
-	public void fileSelected(String selectionType, File selectedFile)
-	{
-		this.selectedFile = selectedFile;
-
-		if (selectionType.equals("game")) {
-			loadGame();
-		} else {
-			showMainComponent();
-			synchronized(this) {
-				this.notifyAll();
-			}
-		}
 	}
 
 	private void loadGame()
@@ -227,11 +488,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		noGameLoadedComponent = null;
 		showMainComponent();
-		gameComponent.reset();
 		inputBuffer.setLength(0);
 
 		try {
-			if (chosenFilename.endsWith(".blorb"))
+			if (chosenFilename.endsWith(".zblorb"))
 				startGame(null, new FileInputStream(selectedFile));
 			else
 				startGame(new FileInputStream(selectedFile), null);
@@ -242,11 +502,15 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 				KOptionPane.showConfirmDialog(root, "Failed to start game " + t.getMessage(), "Error");
 			} catch (Throwable t2) {
 			}
-		}		
+		}
 	}
 
 	private void startGame(InputStream storyStream, InputStream blorbStream) throws IOException, InvalidStoryException
 	{
+		BufferedScreenModel screenModel = new BufferedScreenModel();
+		screenModel.addStatusLineListener(this);
+		screenModel.addScreenModelListener(this.gameComponent);
+
 		MachineInitStruct initStruct = new MachineInitStruct();
 		initStruct.blorbFile = blorbStream;
 		initStruct.storyFile = storyStream;
@@ -259,214 +523,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		executionControl = new ExecutionControl(initStruct);
 		screenModel.init(executionControl.getMachine(), executionControl.getZsciiEncoding());
-		executionControl.setDefaultColors(ScreenModel.COLOR_WHITE, ScreenModel.COLOR_BLACK);
-		updateScreenSize();
-
-		input = null;
-		new Thread(this).start();
-	}
-
-	private void updateScreenSize() {
-		/*
+		executionControl.setDefaultColors(DEFAULT_BACKGROUND, DEFAULT_FOREGROUND);
 		((BufferedScreenModel) executionControl.getMachine().getScreen()).setNumCharsPerRow(gameComponent.getTopCols());
 		executionControl.resizeScreen(gameComponent.getTopRows(), gameComponent.getTopCols());
-		 */
 
-		// FIXME: need to figure this out!
-
-		((BufferedScreenModel) executionControl.getMachine().getScreen()).setNumCharsPerRow(20);
-		executionControl.resizeScreen(20, 20);
-	}
-
-	public void statusLineUpdated(String objectDescription, String status) {
-		ctx.setSubTitle(objectDescription + " " + status);
-	}
-
-	public void updateStatusScore(String objectName, int score, int steps) {
-		ctx.setSubTitle(objectName + " " + score + "/" + steps);
-	}
-
-	public void updateStatusTime(String objectName, int hours, int minutes) {
-		ctx.setSubTitle(objectName + " " + hours + ":" + minutes);
-	}
-
-	public NativeImage createImage(InputStream inputStream) throws IOException {	
-		// whee, nasty hacking ahead!
-
-		// load the image from the input stream
-		Image img = Toolkit.getDefaultToolkit().createImage(new HackImageSource(inputStream));		
-		if (img == null)
-			return null;
-
-		return new AwtImage(((sun.awt.image.BufferedImagePeer) img).getSubimage(0, 0, img.getWidth(null), img.getHeight(null)));
-	}
-
-	/**
-	 * Nasty hack in order to load an image from.. wait for it... an inputstream! What a /revolutionary/ concept.
-	 * 
-	 * @author adq
-	 */
-	public static class HackImageSource extends sun.awt.image.FileImageSource {
-
-		private InputStream is;
-
-		public HackImageSource(String filename) {
-			super(filename);
-		}
-
-		public HackImageSource(InputStream is) {
-			super("");
-			this.is = is;
-		}
-
-		protected sun.awt.image.ImageDecoder getDecoder() {
-			return getDecoder(new BufferedInputStream(is));
-		}
-	}
-
-
-	public boolean saveFormChunk(WritableFormChunk formchunk) {
-		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
-		subDir.mkdirs();
-		
-		showSubComponent(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Select or enter filename...");
-
-		RandomAccessFile raf = null;
-		synchronized (this) {
-			try {
-				this.wait();
-				if (selectedFile == null)
-					return false;
-
-		        raf = new RandomAccessFile(selectedFile, "rw");  
-		        raf.write(formchunk.getBytes());
-		        return true;
-			} catch (Throwable t) {
-				return false;
-			} finally {
-				if (raf != null) try { raf.close(); } catch (Exception ex) { }
-			}
-		}
-	}
-
-	public FormChunk retrieveFormChunk() {
-		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
-		subDir.mkdirs();
-
-		showSubComponent(new LoadFilePanel(this, "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Please choose a saved game...");
-
-		RandomAccessFile raf = null;
-		synchronized (this) {
-			try {
-				this.wait();
-				if (selectedFile == null)
-					return null;
-
-				raf = new RandomAccessFile(selectedFile, "r");
-				byte[] data = new byte[(int) raf.length()];
-				raf.readFully(data);
-				return new DefaultFormChunk(new DefaultMemory(data));
-			} catch (Throwable t) {
-				return null;
-			} finally {
-				if (raf != null) try { raf.close(); } catch (Exception ex) { }
-			}
-		}
-	}
-
-	public Writer getTranscriptWriter() {
-		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
-		subDir.mkdirs();
-		
-		showSubComponent(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Select or enter filename...");
-
-		RandomAccessFile raf = null;
-		synchronized (this) {
-			try {
-				this.wait();
-				if (selectedFile == null)
-					return null;
-
-				return new FileWriter(selectedFile);
-			} catch (Throwable t) {
-				return null;
-			} finally {
-				if (raf != null) try { raf.close(); } catch (Exception ex) { }
-			}
-		}
-	}
-
-	public Reader getInputStreamReader() {
-		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
-		subDir.mkdirs();
-
-		showSubComponent(new LoadFilePanel(this, "inputstream", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Please choose an input file...");
-
-		synchronized (this) {
-			try {
-				this.wait();
-				if (selectedFile == null)
-					return null;
-				
-				return new FileReader(selectedFile);
-			} catch (Throwable t) {
-				return null;
-			}
-		}
-	}
-
-	public void run() {
-		try {
-			if (input != null)
-				runState = executionControl.resumeWithInput(input);
-			else
-				runState = executionControl.run();
-		} catch (Throwable t) {
-			getLogger().error("", t);
-		}
-	}
-
-	public void input(String i) {
-		input = i;
-		updateScreenSize();
-		new Thread(this).start();
-	}
-
-	public boolean inCharMode() {
-		if ((runState != null) && (runState.isReadChar()))
-			return true;
-		return false;
+		userInput(null);
 	}
 }

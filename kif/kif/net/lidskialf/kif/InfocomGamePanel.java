@@ -1,9 +1,9 @@
 package net.lidskialf.kif;
 
-import java.awt.Font;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.util.Iterator;
 
 import org.zmpp.windowing.AnnotatedCharacter;
@@ -11,49 +11,39 @@ import org.zmpp.windowing.AnnotatedText;
 import org.zmpp.windowing.BufferedScreenModel;
 import org.zmpp.windowing.ScreenModel;
 import org.zmpp.windowing.ScreenModelListener;
+import org.zmpp.windowing.TextAnnotation;
 
 import com.amazon.kindle.kindlet.ui.KPanel;
 
-public class InfocomGamePanel extends KPanel implements ComponentListener, ScreenModelListener  {
+public class InfocomGamePanel extends KPanel implements ComponentListener, ScreenModelListener, KeyListener  {
 	
-	private InfocomTopPanel topPanel;
-	private InfocomBottomPanel botPanel;
-	private int topWindowLines = 1;
+	private static final long serialVersionUID = -5395707640433304655L;
+	
+	public InfocomTopPanel topPanel;
+	public InfocomBottomPanel botPanel;
 	private KifKindlet kindlet;
-	
+
 	public InfocomGamePanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
-		
+
 		this.addComponentListener(this);
 		setLayout(null);
-		
-		this.topPanel = new InfocomTopPanel();
-		this.topPanel.setFont(new Font("monospaced", Font.PLAIN, 21));
-		add(this.topPanel);
+		setFocusable(true);
 
 		this.botPanel = new InfocomBottomPanel(kindlet);		
-		this.botPanel.setFont(new Font("Serif-aa", Font.PLAIN, 21));
 		add(this.botPanel);
-		
-		reset();
-	}
 
+		this.topPanel = new InfocomTopPanel(kindlet);
+		add(this.topPanel);
+	}
+	
 	public int getTopCols() {
 		return topPanel.getCols();
 	}
-
+		
 	public int getTopRows() {
 		return topPanel.getRows();
 	}
-
-	public void reset() {
-		windowErased(-1);
-		screenSplit(0);
-	}
-	
-	public void focus() {
-		botPanel.requestFocus();
-	}	
 
 	public void componentHidden(ComponentEvent arg0) {
 	}
@@ -62,14 +52,36 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 	}
 
 	public void componentResized(ComponentEvent arg0) {
-		screenSplit(topWindowLines);
 	}
 
 	public void componentShown(ComponentEvent arg0) {
+		topPanel.setLocation(0, 0);
+		topPanel.setSize(getWidth(), getHeight());
+		topPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)));
+		
+		botPanel.setLocation(0, 0);
+		botPanel.setSize(getWidth(), getHeight());
+		botPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)));
 	}
 	
 	
 	
+
+	public void keyPressed(KeyEvent arg0) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	public void keyReleased(KeyEvent arg0) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	public void keyTyped(KeyEvent arg0) {
+		// TODO Auto-generated method stub
+		
+	}
+
 	
 	
 	
@@ -79,52 +91,40 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 		BufferedScreenModel bsm = (BufferedScreenModel) screenModel;
 	    Iterator it = bsm.getLowerBuffer().listIterator();
 	    while(it.hasNext()) {
-	    	
-	    	AnnotatedText txt = (AnnotatedText) it.next(); // FIXME: support annotated text properly
-
-			botPanel.appendString(txt.getText());
+			botPanel.appendString((AnnotatedText) it.next());
 	    }
 	}
 
-	public void topWindowUpdated(int cursorx, int cursory, AnnotatedCharacter c) {
-		// FIXME: support annotated character properly
-	    topPanel.setChar(cursory - 1, cursorx - 1, c.getCharacter());
-	}
-
-	public void screenSplit(int linesUpperWindow) {
-		topWindowLines = linesUpperWindow;
-		
-		kindlet.getLogger().error("SPLIT " + linesUpperWindow);
-		
-		topPanel.setLocation(0, 0);
-		topPanel.setSize(getWidth(), topPanel.getHeight());
-		topPanel.setLines(linesUpperWindow);
-		
-		botPanel.setLocation(0, topPanel.getHeight());
-		botPanel.setSize(getWidth(), getHeight() - topPanel.getHeight());
-
-	    kindlet.getLogger().error("TOP " + topPanel.getWidth() + " " + topPanel.getHeight());
-	    kindlet.getLogger().error("BOT " + botPanel.getWidth() + " " + botPanel.getHeight());
-	}
-
 	public void windowErased(int window) {
+		// FIXME: implement
+		
+		kindlet.getLogger().error("WINDOWERASED " + window);
+		
 		// FIXME: need to reset colours
 		
 		switch(window) {
 		case -1:
-			topPanel.clear();
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			botPanel.clear();
 			break;
 		case ScreenModel.WINDOW_BOTTOM:
 			botPanel.clear();
 			break;
 		case ScreenModel.WINDOW_TOP:
-			topPanel.clear();
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			break;
 		}
 	}
 
+	public void screenSplit(int linesUpperWindow) {
+		topPanel.setVisibleRows(linesUpperWindow);
+	}
+
+	public void topWindowUpdated(int cursorx, int cursory, AnnotatedCharacter c) {
+		topPanel.setChar(cursory - 1, cursorx - 1, c);
+	}
+
 	public void topWindowCursorMoving(int line, int column) {
-		// FIXME: implement this
+		topPanel.setCursor(line - 1, column - 1);
 	}
 }

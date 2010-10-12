@@ -1,42 +1,42 @@
 package net.lidskialf.kif;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
+
+import org.zmpp.windowing.AnnotatedText;
 
 public class LineDetails {
-	private StringBuffer sb = new StringBuffer();
-	private String s = null;
-	public int nonUserTextLength = 0;
+	private LinkedList text = new LinkedList(); /* of AnnotatedText */
+	private AnnotatedText inputText = null;
 
 	public int screenLineFirst = 0;
 	public boolean screenLineLengthsDirty = true;
-	public ArrayList screenLineLengths = new ArrayList();
+	public ArrayList screenLineLengths = new ArrayList(); /* of TextOffset */
 	
 	public LineDetails() {
 	}
 	
-	public LineDetails(String s) {
-		append(s);
+	public LineDetails(AnnotatedText txt) {
+		text.add(txt);
 	}
 	
-	public String toString() {
-		if (s == null)
-			s = sb.toString();
-		return s;
-	}
-	
-	public void append(String s) {
-		sb.append(s);
-		this.s = null;
+	public void append(AnnotatedText txt) {
+		text.add(txt);
 		this.screenLineLengthsDirty = true;
-		this.nonUserTextLength = sb.length();
 	}
 	
-	public void setUserText(String s) {
-		sb.setLength(nonUserTextLength);
-		sb.append(s);
-		this.s = null;
+	public void setInputText(AnnotatedText ta) {
+		inputText = ta;
 		this.screenLineLengthsDirty = true;
 		this.screenLineLengths.clear();
+	}
+	
+	public LinkedList getText() {
+		return text;
+	}
+	
+	public AnnotatedText getInputText() {
+		return inputText;
 	}
 	
 	public int screenLineAfter() {
@@ -47,5 +47,15 @@ public class LineDetails {
 		screenLineFirst = -1;
 		screenLineLengthsDirty = true;
 		screenLineLengths.clear();
+	}
+	
+	public static class TextOffset {
+		public int atIdx;
+		public int charIdx;
+		
+		public TextOffset(int atIdx, int charIdx) {
+			this.atIdx = atIdx;
+			this.charIdx = charIdx;
+		}
 	}
 }
