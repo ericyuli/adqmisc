@@ -24,6 +24,7 @@ public class InfocomTopPanel extends KComponent {
 	private int numRows = 0;
 	private int numCols = 0;
 	private AnnotatedCharacter[][] charArray = new AnnotatedCharacter[0][0];
+	private boolean cursorShown = false;
 
 	private int charHeight;
 	private int charWidth;
@@ -60,22 +61,28 @@ public class InfocomTopPanel extends KComponent {
 		charArray[row][col] = c;
 	}
 
-	public void setCursor(int row, int col) {
+	public void setCursor(boolean show, int row, int col) {
 		if ((row < 0) || (row >= numRows))
 			return;
 		if ((col < 0) || (col >= numCols))
 			return;
-
-		charArray[row][col] = cursorChar;
+		
+		if (!show) {
+			if (cursorShown)
+				charArray[row][col] = null;
+		} else {
+			charArray[row][col] = cursorChar;
+		}
+		
+		cursorShown = show;
 	}
 
-	public void clear(int bgColour, int fgColour) {
+	public void clear(int bgColour, int fgColour, int visibleRows) {
 		this.defaultBgColor = bgColour;
 		this.defaultFgColor = fgColour;
 		defaultChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN, defaultBgColor, defaultFgColor), ' ');
 		cursorChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_REVERSE_VIDEO, defaultBgColor, defaultFgColor), ' ');
 
-		int visibleRows = kindlet.getNumRowsUpper();
 		for(int row = 0; row < numRows && row < visibleRows; row++)
 			for(int col = 0; col < numCols; col++)
 				charArray[row][col] = defaultChar;
@@ -94,7 +101,7 @@ public class InfocomTopPanel extends KComponent {
 		numRows = getHeight() / charHeight;
 		numCols = getWidth() / charWidth;
 
-		clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+		clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 	}
 
 	public void paint(Graphics g) {

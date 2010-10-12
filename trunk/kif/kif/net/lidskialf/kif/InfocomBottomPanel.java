@@ -33,13 +33,17 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 	private boolean userInput = false;
 
 	private KifKindlet kindlet;
-	
+	private int defaultBgColor;
+	private int defaultFgColor;
+
 
 	public InfocomBottomPanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
 		this.curLine = new LineDetails(new AnnotatedText(""));
 		this.textLines.add(this.curLine);
 		this.userInputTa = new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN, kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+		this.defaultBgColor = kindlet.getDefaultBackground();
+		this.defaultFgColor = kindlet.getDefaultForeground();
 
 		this.addTextListener(this);
 	}
@@ -104,9 +108,13 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		repaint();
 	}
 
-	public void clear() {
+	public void clear(int bgColour, int fgColour) {
+		this.defaultBgColor = bgColour;
+		this.defaultFgColor = fgColour;
 		textLines.clear();
-		curLine = new LineDetails(new AnnotatedText(""));
+
+		TextAnnotation ta = new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN, bgColour, fgColour);
+		curLine = new LineDetails(new AnnotatedText(ta, ""));
 		textLines.add(curLine);
 		
 		setText("");
@@ -219,8 +227,8 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		lineHeight = fontMetrics.getHeight();
 		linesPerPage = getHeight() / lineHeight;
 		intercharacterSpaceBuffer = fontMetrics.charWidth(' ');
-
-		clear();
+		
+		clear(defaultBgColor, defaultFgColor);
 	}
 	
 	public void paint(Graphics g) {
