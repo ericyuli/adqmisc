@@ -4,126 +4,136 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Rectangle;
-import java.awt.event.ComponentEvent;
-import java.awt.event.ComponentListener;
+
+import org.zmpp.windowing.AnnotatedCharacter;
+import org.zmpp.windowing.ScreenModel;
+import org.zmpp.windowing.TextAnnotation;
 
 import com.amazon.kindle.kindlet.ui.KComponent;
 
 
-public class InfocomTopPanel extends KComponent implements ComponentListener {
+public class InfocomTopPanel extends KComponent {
 	
 	private static final long serialVersionUID = 7383736491580909999L;
 	
-	int rows = 0;
-	int cols = 0;
-	private char[][] charArray = new char[0][0];
-	private FontMetrics fontMetrics = null;
+	private AnnotatedCharacter defaultChar;
+	private AnnotatedCharacter cursorChar;
+	private int defaultBgColor = ScreenModel.COLOR_WHITE;
+	private int defaultFgColor = ScreenModel.COLOR_BLACK;
+
+	private int numRows = 0;
+	private int numCols = 0;
+	private AnnotatedCharacter[][] charArray = new AnnotatedCharacter[0][0];
+
 	private int charHeight;
 	private int charWidth;
+
+	private KifKindlet kindlet;
 	
-	public InfocomTopPanel() {
-		this.addComponentListener(this);
+
+
+	public InfocomTopPanel(KifKindlet kindlet) {
+		this.kindlet = kindlet;
 	}
 	
 	public int getRows() {
-		return rows;
+		return numRows;
 	}
 	
 	public int getCols() {
-		return cols;
-	}
-	
-	public void setChar(int row, int col, char c) {
-		if ((row < 0) || (row >= rows))
-			return;
-		if ((col < 0) || (col >= cols))
-			return;
-		charArray[row][col] = c;
-		repaint(col * charWidth, row * charHeight, charWidth, charHeight);
-	}
-	
-	public void setLines(int lines) {
-		this.setSize(getWidth(), lines * charHeight);
-	}
-	
-	public void clear() {
-		for(int row = 0; row < rows; row++)
-			for(int col = 0; col < cols; col++)
-				charArray[row][col] = ' ';
-		repaint();
+		return numCols;
 	}
 
+	public void setVisibleRows(int rows) {
+		if (rows > numRows)
+			rows = numRows;
+
+		this.setSize(getWidth(), rows * charHeight);
+	}
+
+	public void setChar(int row, int col, AnnotatedCharacter c) {
+		if ((row < 0) || (row >= numRows))
+			return;
+		if ((col < 0) || (col >= numCols))
+			return;
+
+		charArray[row][col] = c;
+	}
+
+	public void setCursor(int row, int col) {
+		if ((row < 0) || (row >= numRows))
+			return;
+		if ((col < 0) || (col >= numCols))
+			return;
+
+		charArray[row][col] = cursorChar;
+	}
+
+	public void clear(int bgColour, int fgColour) {
+		this.defaultBgColor = bgColour;
+		this.defaultFgColor = fgColour;
+		defaultChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN, defaultBgColor, defaultFgColor), ' ');
+		cursorChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_REVERSE_VIDEO, defaultBgColor, defaultFgColor), ' ');
+
+		int visibleRows = kindlet.getNumRowsUpper();
+		for(int row = 0; row < numRows && row < visibleRows; row++)
+			for(int col = 0; col < numCols; col++)
+				charArray[row][col] = defaultChar;
+		
+		for(int row = visibleRows; row < numRows; row++)
+			for(int col = 0; col < numCols; col++)
+				charArray[row][col] = null;
+	}
 
 	public void setFont(Font f) {
 		super.setFont(f);
-
-		fontMetrics = getFontMetrics(f);
-		charWidth = fontMetrics.charWidth('W');
+		
+		FontMetrics fontMetrics = getFontMetrics(f);
+		charWidth = fontMetrics.charWidth('0');
 		charHeight = fontMetrics.getHeight();
-		updateCharArray();
+		numRows = getHeight() / charHeight;
+		numCols = getWidth() / charWidth;
+
+		clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 	}
-	
+
 	public void paint(Graphics g) {
-		
+
 		Rectangle redraw = g.getClipBounds();
-		
+
+		int minRedrawRow = redraw.y / charHeight;
 		int maxRedrawRow = ((redraw.y + redraw.height) / charHeight) + 1;
-		if (maxRedrawRow > rows)
-			maxRedrawRow = rows;
+		if (maxRedrawRow > numRows)
+			maxRedrawRow = numRows;
+		int minRedrawCol = redraw.x / charWidth;
 		int maxRedrawCol = ((redraw.x + redraw.width) / charWidth) + 1;
-		if (maxRedrawCol > cols)
-			maxRedrawCol = cols;
-		
-		for(int curRow = redraw.y / charHeight; curRow < maxRedrawRow; curRow++) {
-			for(int curCol = redraw.x / charWidth; curCol < maxRedrawCol; curCol++) {
-				int xoff = (charWidth - fontMetrics.charWidth(charArray[curRow][curCol])) / 2;
-				g.drawChars(charArray[curRow], curCol, 1, (curCol * charWidth) + xoff, ((curRow + 1) * charHeight) - fontMetrics.getDescent());
+		if (maxRedrawCol > numCols)
+			maxRedrawCol = numCols;
+
+		char[] tmp = new char[1];
+		for(int curRow = minRedrawRow; curRow < maxRedrawRow; curRow++) {
+			for(int curCol = minRedrawCol; curCol < maxRedrawCol; curCol++) {
+				if (charArray[curRow][curCol] == null)
+					continue;
+
+				// get details of what we're drawing
+				char c = charArray[curRow][curCol].getCharacter();
+				TextAnnotation ta = charArray[curRow][curCol].getAnnotation();
+
+				// figure out the font and the row/col offset to draw at
+				g.setFont(kindlet.getAWTFont(ta));
+				FontMetrics fontMetrics = g.getFontMetrics();
+
+				// draw the background
+				g.setColor(kindlet.getAWTBackgroundColor(ta));
+				g.fillRect(curCol * charWidth, (curRow) * charHeight, charWidth, charHeight);
+
+				// draw the foregound
+				g.setColor(kindlet.getAWTForegroundColor(ta));
+				tmp[0] = c;
+				int xoff = (charWidth - fontMetrics.charWidth(c)) / 2;
+				g.drawChars(tmp, 0, 1, (curCol * charWidth) + xoff, ((curRow + 1) * charHeight) - fontMetrics.getDescent());
 			}
 		}
 	}
-	
-	private void updateCharArray() {
-		if (charWidth == 0)
-			return;
-
-		int oldRows = rows;
-		int oldCols = cols;
-		int newRows = getHeight() / charHeight;
-		int newCols = getWidth() / charWidth;
-
-		char[][] newCharArray = new char[newRows][newCols];
-		for(int row = 0; row < newRows; row++) {
-			char[] newRow = newCharArray[row];
-
-			// copy any data across from the old char array
-			int copyLen = 0;
-			if (row < oldRows) {
-				char[] oldRow = charArray[row];
-				copyLen = newCols;
-				if (copyLen > oldCols)
-					copyLen = oldCols;
-				System.arraycopy(oldRow, 0, newRow, 0, copyLen);
-			}
-			
-			// fill the rest with spaces
-			for(int col = copyLen; col < newCols; col++)
-				newRow[col] = ' ';
-		}
-		charArray = newCharArray;
-		rows = newRows;
-		cols = newCols;
-	}
-
-	public void componentResized(ComponentEvent e) {
-		updateCharArray();
-	}
-
-	public void componentMoved(ComponentEvent e) {
-	}
-
-	public void componentShown(ComponentEvent e) {
-	}
-
-	public void componentHidden(ComponentEvent e) {
-	}	
 }
