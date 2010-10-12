@@ -104,14 +104,14 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 		
 		switch(window) {
 		case -1:
-			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
-			botPanel.clear();
+			topPanel.clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			break;
 		case ScreenModel.WINDOW_BOTTOM:
-			botPanel.clear();
+			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			break;
 		case ScreenModel.WINDOW_TOP:
-			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			topPanel.clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			break;
 		}
 	}
@@ -125,6 +125,6 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 	}
 
 	public void topWindowCursorMoving(int line, int column) {
-		topPanel.setCursor(line - 1, column - 1);
+		topPanel.setCursor(true, line - 1, column - 1);
 	}
 }
