@@ -6,14 +6,12 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
 import java.awt.Image;
-import java.awt.Insets;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
@@ -30,6 +28,8 @@ import org.apache.log4j.*;
 import com.amazon.kindle.kindlet.*;
 import com.amazon.kindle.kindlet.event.KindleKeyCodes;
 import com.amazon.kindle.kindlet.ui.*;
+import com.amazon.kindle.kindlet.util.Timer;
+import com.amazon.kindle.kindlet.util.TimerTask;
 
 import org.zmpp.ExecutionControl;
 import org.zmpp.base.DefaultMemory;
@@ -39,6 +39,7 @@ import org.zmpp.iff.DefaultFormChunk;
 import org.zmpp.iff.FormChunk;
 import org.zmpp.iff.WritableFormChunk;
 import org.zmpp.io.IOSystem;
+import org.zmpp.vm.Instruction;
 import org.zmpp.vm.InvalidStoryException;
 import org.zmpp.vm.MachineRunState;
 import org.zmpp.vm.SaveGameDataStore;
@@ -58,6 +59,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private static final int inset = 10;
 
+	private boolean vmThreadCancelled;
 	private Thread vmThread;
 	private ExecutionControl executionControl;
 	private MachineRunState runState;
@@ -65,6 +67,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	private String input = null;
 	private String gameName = null;
 	private File selectedFile = null;
+	private Timer irqTimer = new Timer();
+	private TimerTask irqTask = new IrqTimerTask();
+	private BufferedScreenModel screenModel;
 
 	private static final Color GREEN    = new Color(0, 190, 0);
 	private static final Color RED      = new Color(190, 0, 0);
@@ -100,10 +105,15 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.fixedFont = new Font("monospaced", Font.PLAIN, 14);
 		this.variableFont = new Font("Serif-aa", Font.PLAIN, 21);
 		
+		root.add(gameComponent);
+		
 		initRootContent();
 		showMainComponent();
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
+		vmThread.start();
+		
+		// FIXME: load persisted game state
 	}
 
 	public void start() {
@@ -113,6 +123,17 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public void destroy() {
+		
+		// FIXME: persist game state
+		
+		try {
+			irqTimer.cancel();
+			vmThreadCancelled = true;
+			synchronized (this) {
+				this.notifyAll();
+			}
+		} catch (Throwable t) {
+		}
 	}
 
 	
@@ -204,9 +225,29 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public boolean inCharMode() {
-		if ((runState != null) && (runState.isReadChar()))
+		if ((runState != null) && runState.isReadChar())
 			return true;
 		return false;
+	}
+
+	public boolean inLineMode() {
+		if ((runState != null) && runState.isReadLine())
+			return true;
+		return false;
+	}
+	
+	public int getVersion() {
+		if (executionControl != null)
+			return executionControl.getVersion();
+		return 0;
+	}
+	
+	public int getActiveWindow() {
+		return screenModel.getActiveWindow();
+	}
+	
+	public TextCursor getCursor() {
+		return screenModel.getTextCursor();
 	}
 
 	
@@ -328,16 +369,22 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public void run() {
-		while(true) {
+		while(!vmThreadCancelled) {
 			try {
 				synchronized (this) {
 					this.wait();
-						
-					if (input != null)
-						runState = executionControl.resumeWithInput(input);
-					else
-						runState = executionControl.run();
 				}
+					
+				irqTimer.cancel();
+				if (input != null)
+					runState = executionControl.resumeWithInput(input);
+				else
+					runState = executionControl.run();
+				
+				if (runState.getRoutine() > 0)
+					irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
+				gameComponent.updateCursor(runState.isWaitingForInput());
+				gameComponent.repaintDirty();
 			} catch (Throwable t) {
 				getLogger().error("", t);
 			}
@@ -485,7 +532,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	{
 		String chosenFilename = selectedFile.getName();
 		this.gameName = chosenFilename.substring(0, chosenFilename.lastIndexOf('.'));
-
+		
 		noGameLoadedComponent = null;
 		showMainComponent();
 		inputBuffer.setLength(0);
@@ -507,7 +554,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private void startGame(InputStream storyStream, InputStream blorbStream) throws IOException, InvalidStoryException
 	{
-		BufferedScreenModel screenModel = new BufferedScreenModel();
+		gameComponent.init(content.getWidth(), content.getHeight());
+
+		screenModel = new BufferedScreenModel();
 		screenModel.addStatusLineListener(this);
 		screenModel.addScreenModelListener(this.gameComponent);
 
@@ -524,9 +573,36 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		executionControl = new ExecutionControl(initStruct);
 		screenModel.init(executionControl.getMachine(), executionControl.getZsciiEncoding());
 		executionControl.setDefaultColors(DEFAULT_BACKGROUND, DEFAULT_FOREGROUND);
-		((BufferedScreenModel) executionControl.getMachine().getScreen()).setNumCharsPerRow(gameComponent.getTopCols());
+		screenModel.setNumCharsPerRow(gameComponent.getTopCols());
 		executionControl.resizeScreen(gameComponent.getTopRows(), gameComponent.getTopCols());
+		gameComponent.setUserInputStyle(screenModel.getBottomAnnotation());
+		gameComponent.clear(getDefaultBackground(), getDefaultForeground());
 
 		userInput(null);
+	}
+	
+	private class IrqTimerTask extends TimerTask {
+
+		public void run() {
+			// FIXME: get current input
+			String userInput = "";
+			if (userInput != null)
+				executionControl.setTextToInputBuffer(userInput);
+			
+			// FIXME: buffer mode false
+			
+			switch(executionControl.callInterrupt(runState.getRoutine())) {
+			case Instruction.TRUE:
+				irqTimer.cancel();
+				// FIXME: press enter key
+				break;
+				
+			case Instruction.FALSE:
+				// FIXME: what to do here?
+				break;				
+			}
+			
+			// FIXME: buffer mode true
+		} 
 	}
 }
