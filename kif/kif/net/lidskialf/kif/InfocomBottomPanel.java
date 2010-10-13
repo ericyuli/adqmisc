@@ -104,7 +104,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			curLine.setInputText(new AnnotatedText(userInputTa, userInputText));
 			userInput = true;
 		}
-		
+
 		recalc();
 		repaint(); // FIXME: can this be optimised?
 	}
@@ -117,9 +117,9 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		TextAnnotation ta = new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN, bgColour, fgColour);
 		curLine = new LineDetails(new AnnotatedText(ta, ""));
 		textLines.add(curLine);
-		
+
 		setText("");
-		
+
 		recalc();
 		repaint();
 	}

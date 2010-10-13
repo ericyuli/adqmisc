@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
-import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
@@ -48,7 +47,7 @@ import org.zmpp.vm.MachineFactory.MachineInitStruct;
 import org.zmpp.windowing.*;
 import org.zmpp.windowing.BufferedScreenModel.StatusLineListener;
 
-public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, NativeImageFactory, SaveGameDataStore, IOSystem, Runnable {
+public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, NativeImageFactory, SaveGameDataStore, IOSystem {
 	private Container root;
 	private Container content; 
 
@@ -71,6 +70,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	private Timer irqTimer = new Timer();
 	private TimerTask irqTask = new IrqTimerTask();
 	private BufferedScreenModel screenModel;
+	private Boolean gameExecMonitor = new Boolean(true);
+	private Boolean userActionMonitor = new Boolean(true);
+	private String curSubTitle = "";
 
 	private static final Color GREEN    = new Color(0, 190, 0);
 	private static final Color RED      = new Color(190, 0, 0);
@@ -78,7 +80,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	private static final Color BLUE     = new Color(0, 0, 190);
 	private static final Color MAGENTA  = new Color(190, 0, 190);
 	private static final Color CYAN     = new Color(0, 190, 190);
-	
+
 	private static final int DEFAULT_FOREGROUND = ScreenModel.COLOR_BLACK;
 	private static final int DEFAULT_BACKGROUND = ScreenModel.COLOR_WHITE;
 
@@ -102,16 +104,16 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.root = ctx.getRootContainer();
 		this.noGameLoadedComponent = createNoGameLoaded();
 		this.gameComponent = createGameDisplay();
-		this.vmThread = new Thread(this);
+		this.vmThread = new Thread(new GameThread());
 		this.fixedFont = new Font("monospaced-aa", Font.PLAIN, 14);
-		this.variableFont = new Font("Serif-aa", Font.PLAIN, 21);
-		
+		this.variableFont = new Font("SansSerif-aa", Font.PLAIN, 21);
+
 		initRootContent();
 		showMainComponent();
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
 		vmThread.start();
-		
+
 		// FIXME: load persisted game state
 	}
 
@@ -122,20 +124,20 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public void destroy() {
-		
+
 		// FIXME: persist game state
-		
+
 		try {
 			irqTimer.cancel();
 			vmThreadCancelled = true;
-			synchronized (this) {
-				this.notifyAll();
+			synchronized (gameExecMonitor) {
+				gameExecMonitor.notifyAll();
 			}
 		} catch (Throwable t) {
 		}
 	}
 
-	
+
 	public Color getAWTForegroundColor(TextAnnotation ta) {
 		Color c;
 		if (ta.isReverseVideo())
@@ -147,39 +149,39 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		// "Varicella" need it
 		return c.brighter();
 	}
-	
+
 	public Color getAWTBackgroundColor(TextAnnotation ta) {
 		if (ta.isReverseVideo())
 			return getAWTColor(ta.getForeground(), getDefaultForeground());
 		return getAWTColor(ta.getBackground(), getDefaultBackground());
 	}
-	
+
 	public Color getAWTColor(int colour, int defaultColour) {
-	    switch (colour) {
-	    case ScreenModel.COLOR_DEFAULT:
-	      return getAWTColor(defaultColour, ScreenModel.UNDEFINED);
-	    case ScreenModel.COLOR_BLACK:
-	      return Color.BLACK;
-	    case ScreenModel.COLOR_RED:
-	      return RED;
-	    case ScreenModel.COLOR_GREEN:
-	      return GREEN;
-	    case ScreenModel.COLOR_YELLOW:
-	      return YELLOW;
-	    case ScreenModel.COLOR_BLUE:
-	      return BLUE;
-	    case ScreenModel.COLOR_MAGENTA:
-	      return MAGENTA;
-	    case ScreenModel.COLOR_CYAN:
-	      return CYAN;
-	    case ScreenModel.COLOR_WHITE:
-	      return Color.WHITE;
-	    case ScreenModel.COLOR_MS_DOS_DARKISH_GREY:
-	      return Color.DARK_GRAY;
-	    default:
-	      break;
-	    }
-	    return Color.BLACK;
+		switch (colour) {
+		case ScreenModel.COLOR_DEFAULT:
+			return getAWTColor(defaultColour, ScreenModel.UNDEFINED);
+		case ScreenModel.COLOR_BLACK:
+			return Color.BLACK;
+		case ScreenModel.COLOR_RED:
+			return RED;
+		case ScreenModel.COLOR_GREEN:
+			return GREEN;
+		case ScreenModel.COLOR_YELLOW:
+			return YELLOW;
+		case ScreenModel.COLOR_BLUE:
+			return BLUE;
+		case ScreenModel.COLOR_MAGENTA:
+			return MAGENTA;
+		case ScreenModel.COLOR_CYAN:
+			return CYAN;
+		case ScreenModel.COLOR_WHITE:
+			return Color.WHITE;
+		case ScreenModel.COLOR_MS_DOS_DARKISH_GREY:
+			return Color.DARK_GRAY;
+		default:
+			break;
+		}
+		return Color.BLACK;
 	}
 
 	public Font getAWTFont(TextAnnotation ta) {
@@ -188,23 +190,23 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		if (ta.isFixed())
 			font = fixedFont;
 
-	    int style = Font.PLAIN;
-	    if (ta.isBold()) style |= Font.BOLD;
-	    if (ta.isItalic()) style |= Font.ITALIC;
-	    return new Font(font.getName(), style, font.getSize());
+		int style = Font.PLAIN;
+		if (ta.isBold()) style |= Font.BOLD;
+		if (ta.isItalic()) style |= Font.ITALIC;
+		return new Font(font.getName(), style, font.getSize());
 	}
 
 	public KindletContext getContext() {
 		return ctx;
 	}
-	
+
 	public int getDefaultBackground() {
 		int c = DEFAULT_BACKGROUND;
 		if (executionControl != null)
 			c = executionControl.getDefaultBackground();
 		return c;
 	}
-	
+
 	public int getDefaultForeground() {
 		int c = DEFAULT_FOREGROUND;
 		if (executionControl != null)
@@ -215,11 +217,11 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	public int getNumRowsUpper() {
 		return ((BufferedScreenModel) executionControl.getMachine().getScreen()).getNumRowsUpper();
 	}
-	
+
 	public void userInput(String i) {
-		synchronized (this) {
+		synchronized (gameExecMonitor) {
 			input = i;
-			this.notifyAll();
+			gameExecMonitor.notifyAll();
 		}
 	}
 
@@ -234,48 +236,50 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 			return true;
 		return false;
 	}
-	
+
 	public int getVersion() {
 		if (executionControl != null)
 			return executionControl.getVersion();
 		return 0;
 	}
-	
+
 	public int getActiveWindow() {
 		return screenModel.getActiveWindow();
 	}
-	
+
 	public TextCursor getCursor() {
 		return screenModel.getTextCursor();
 	}
 
-	
-	
-	
+
+
+
 
 	public boolean saveFormChunk(WritableFormChunk formchunk) {
 		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
 		subDir.mkdirs();
-		
-		showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Select or enter filename...");
 
 		RandomAccessFile raf = null;
 		try {
-			this.wait(); // running on VM thread so already locked
-			if (selectedFile == null)
-				return false;
+			synchronized (userActionMonitor) {
+				showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+					public boolean accept(File dir, String filename) {
+						File cur = new File(dir, filename);
+						if (cur.isDirectory())
+							return false;
+		
+						return true;
+					}
+				}), "Select or enter filename...");
 
-	        raf = new RandomAccessFile(selectedFile, "rw");  
-	        raf.write(formchunk.getBytes());
-	        return true;
+				userActionMonitor.wait();				
+				if (selectedFile == null)
+					return false;
+	
+				raf = new RandomAccessFile(selectedFile, "rw");  
+				raf.write(formchunk.getBytes());
+				return true;
+			}
 		} catch (Throwable t) {
 			return false;
 		} finally {
@@ -287,26 +291,27 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
 		subDir.mkdirs();
 
-		showSelector(new LoadFilePanel(this, "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Please choose a saved game...");
-
 		RandomAccessFile raf = null;
 		try {
-			this.wait(); // running on VM thread so already locked
-			if (selectedFile == null)
-				return null;
-
-			raf = new RandomAccessFile(selectedFile, "r");
-			byte[] data = new byte[(int) raf.length()];
-			raf.readFully(data);
-			return new DefaultFormChunk(new DefaultMemory(data));
+			synchronized (userActionMonitor) {
+				showSelector(new LoadFilePanel(this, "savegame", subDir, new FilenameFilter() {
+					public boolean accept(File dir, String filename) {
+						File cur = new File(dir, filename);
+						if (cur.isDirectory())
+							return false;
+		
+						return true;
+					}
+				}), "Please choose a saved game...");
+				userActionMonitor.wait();
+				if (selectedFile == null)
+					return null;
+	
+				raf = new RandomAccessFile(selectedFile, "r");
+				byte[] data = new byte[(int) raf.length()];
+				raf.readFully(data);
+				return new DefaultFormChunk(new DefaultMemory(data));
+			}
 		} catch (Throwable t) {
 			return null;
 		} finally {
@@ -317,24 +322,26 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	public Writer getTranscriptWriter() {
 		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
 		subDir.mkdirs();
-		
-		showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Select or enter filename...");
 
 		RandomAccessFile raf = null;
 		try {
-			this.wait(); // running on VM thread so already locked
-			if (selectedFile == null)
-				return null;
-
-			return new FileWriter(selectedFile);
+			synchronized (userActionMonitor) {
+				showSelector(new SaveFilePanel(this, gameName + ".save", "savegame", subDir, new FilenameFilter() {
+					public boolean accept(File dir, String filename) {
+						File cur = new File(dir, filename);
+						if (cur.isDirectory())
+							return false;
+		
+						return true;
+					}
+				}), "Select or enter filename...");
+		
+				userActionMonitor.wait();				
+				if (selectedFile == null)
+					return null;
+	
+				return new FileWriter(selectedFile);
+			}
 		} catch (Throwable t) {
 			return null;
 		} finally {
@@ -346,60 +353,42 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		File subDir = new File(ctx.getHomeDirectory(), gameName + "-saves");
 		subDir.mkdirs();
 
-		showSelector(new LoadFilePanel(this, "inputstream", subDir, new FilenameFilter() {
-			public boolean accept(File dir, String filename) {
-				File cur = new File(dir, filename);
-				if (cur.isDirectory())
-					return false;
-
-				return true;
-			}
-		}), "Please choose an input file...");
-
 		try {
-			this.wait(); // running on VM thread so already locked
-			if (selectedFile == null)
-				return null;
-			
-			return new FileReader(selectedFile);
+			synchronized (userActionMonitor) {
+				showSelector(new LoadFilePanel(this, "inputstream", subDir, new FilenameFilter() {
+					public boolean accept(File dir, String filename) {
+						File cur = new File(dir, filename);
+						if (cur.isDirectory())
+							return false;
+
+						return true;
+					}
+				}), "Please choose an input file...");
+
+				userActionMonitor.wait();				
+				if (selectedFile == null)
+					return null;
+	
+				return new FileReader(selectedFile);
+			}
 		} catch (Throwable t) {
 			return null;
 		}
 	}
 
-	public void run() {
-		while(!vmThreadCancelled) {
-			try {
-				synchronized (this) {
-					this.wait();
-				}
-					
-				irqTimer.cancel();
-				if (input != null)
-					runState = executionControl.resumeWithInput(input);
-				else
-					runState = executionControl.run();
-				
-				if (runState.getRoutine() > 0)
-					irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
-				gameComponent.updateCursor(runState.isWaitingForInput());
-				gameComponent.repaintDirty();
-			} catch (Throwable t) {
-				getLogger().error("", t);
-			}
-		}
-	}
-	
 	public void statusLineUpdated(String objectDescription, String status) {
-		ctx.setSubTitle(objectDescription + " " + status);
+		curSubTitle = objectDescription + " " + status;
+		ctx.setSubTitle(curSubTitle);
 	}
 
 	public void updateStatusScore(String objectName, int score, int steps) {
-		ctx.setSubTitle(objectName + " " + score + "/" + steps);
+		curSubTitle = objectName + " " + score + "/" + steps;
+		ctx.setSubTitle(curSubTitle);
 	}
 
 	public void updateStatusTime(String objectName, int hours, int minutes) {
-		ctx.setSubTitle(objectName + " " + hours + ":" + minutes);
+		curSubTitle = objectName + " " + hours + ":" + minutes;
+		ctx.setSubTitle(curSubTitle);
 	}
 
 	public NativeImage createImage(InputStream inputStream) throws IOException {	
@@ -413,7 +402,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		return new AwtImage(((sun.awt.image.BufferedImagePeer) img).getSubimage(0, 0, img.getWidth(null), img.getHeight(null)));
 	}
 
-
 	public void fileSelected(String selectionType, File selectedFile)
 	{
 		this.selectedFile = selectedFile;
@@ -422,18 +410,18 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 			loadGame();
 		} else {
 			showMainComponent();
-			synchronized(this) {
-				this.notifyAll();
+			synchronized(userActionMonitor) {
+				userActionMonitor.notifyAll();
 			}
 		}
 	}
 
-	
-	
-	
-	
-	
-	
+
+
+
+
+
+
 	private InfocomGamePanel createGameDisplay() {
 		return new InfocomGamePanel(this);
 	}
@@ -447,7 +435,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		root.add(KBox.createHorizontalStrut(inset), BorderLayout.EAST);
 		root.add(KBox.createHorizontalStrut(inset), BorderLayout.WEST);
 		root.add(KBox.createVerticalStrut(inset), BorderLayout.NORTH);
-		
+
 		content = new KPanel(new BorderLayout());
 		root.add(content, BorderLayout.CENTER);
 	}
@@ -473,11 +461,11 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 				// if we're not on the main screen when we get a "BACK", trap it and return to the main game screen
 				if (e.getKeyCode() == KindleKeyCodes.VK_BACK) {
 					if ((content.getComponent(0) != gameComponent) && (content.getComponent(0) != noGameLoadedComponent)) {
-						selectedFile = null;
-						synchronized (KifKindlet.this) {
-							KifKindlet.this.notifyAll();
-						}
 						showMainComponent();
+						synchronized (KifKindlet.this.userActionMonitor) {
+							selectedFile = null;
+							KifKindlet.this.userActionMonitor.notifyAll();
+						}
 						return true;
 					}
 				}
@@ -524,15 +512,16 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 			gameComponent.requestFocus();
 		}
 
-		ctx.setSubTitle("");
+		ctx.setSubTitle(curSubTitle);
 	}
 
 	private void loadGame()
 	{
 		String chosenFilename = selectedFile.getName();
 		this.gameName = chosenFilename.substring(0, chosenFilename.lastIndexOf('.'));
-		
+
 		noGameLoadedComponent = null;
+		curSubTitle = "";
 		showMainComponent();
 		inputBuffer.setLength(0);
 
@@ -579,29 +568,59 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		userInput(null);
 	}
-	
+
 	private class IrqTimerTask extends TimerTask {
 
 		public void run() {
-			// FIXME: get current input
-			String userInput = "";
-			if (userInput != null)
-				executionControl.setTextToInputBuffer(userInput);
-			
-			// FIXME: buffer mode false
-			
-			switch(executionControl.callInterrupt(runState.getRoutine())) {
-			case Instruction.TRUE:
-				irqTimer.cancel();
-				// FIXME: press enter key
-				break;
-				
-			case Instruction.FALSE:
-				// FIXME: what to do here?
-				break;				
+			synchronized (gameExecMonitor) {
+				// FIXME: get current input
+				String userInput = "";
+				if (userInput != null)
+					executionControl.setTextToInputBuffer(userInput);
+	
+				// FIXME: buffer mode false
+	
+				switch(executionControl.callInterrupt(runState.getRoutine())) {
+				case Instruction.TRUE:
+					irqTimer.cancel();
+					// FIXME: press enter key
+					break;
+	
+				case Instruction.FALSE:
+					// FIXME: what to do here?
+					break;				
+				}
+	
+				// FIXME: buffer mode true
 			}
-			
-			// FIXME: buffer mode true
 		} 
+	}
+
+	private class GameThread implements Runnable {
+
+		public void run() {
+			while(!vmThreadCancelled) {
+				synchronized (gameExecMonitor) {
+					try {
+						gameExecMonitor.wait();
+						if (vmThreadCancelled)
+							break;
+		
+						irqTimer.cancel();
+						if (input != null)
+							runState = executionControl.resumeWithInput(input);
+						else
+							runState = executionControl.run();
+		
+						if (runState.getRoutine() > 0)
+							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
+						gameComponent.updateCursor(runState.isWaitingForInput());
+						gameComponent.repaintDirty();
+					} catch (Throwable t) {
+						getLogger().error("VM Error", t);
+					}
+				}
+			}
+		}		
 	}
 }
