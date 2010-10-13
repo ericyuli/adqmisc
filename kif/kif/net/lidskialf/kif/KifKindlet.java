@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
@@ -102,10 +103,8 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.noGameLoadedComponent = createNoGameLoaded();
 		this.gameComponent = createGameDisplay();
 		this.vmThread = new Thread(this);
-		this.fixedFont = new Font("monospaced", Font.PLAIN, 14);
+		this.fixedFont = new Font("monospaced-aa", Font.PLAIN, 14);
 		this.variableFont = new Font("Serif-aa", Font.PLAIN, 21);
-		
-		root.add(gameComponent);
 		
 		initRootContent();
 		showMainComponent();
