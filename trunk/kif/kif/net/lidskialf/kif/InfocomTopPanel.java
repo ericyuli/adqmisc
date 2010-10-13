@@ -63,20 +63,20 @@ public class InfocomTopPanel extends KComponent {
 		charArray[row][col] = c;
 	}
 
-	public void setCursor(boolean show, int row, int col) {
+	public void setCursor(int row, int col, boolean shown) {
 		if ((row < 0) || (row >= numRows))
 			return;
 		if ((col < 0) || (col >= numCols))
 			return;
 		
-		if (!show) {
+		if (!shown) {
 			if (cursorShown)
 				charArray[row][col] = null;
 		} else {
 			charArray[row][col] = cursorChar;
 		}
 		
-		cursorShown = show;
+		cursorShown = shown;
 	}
 
 	public void clear(int bgColour, int fgColour, int visibleRows) {

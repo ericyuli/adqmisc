@@ -54,7 +54,7 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 		switch(kindlet.getActiveWindow()) {
 		case ScreenModel.WINDOW_TOP:
 			TextCursor cursor = kindlet.getCursor();
-			topPanel.setCursor(shown, cursor.getLine() - 1, cursor.getColumn() - 1);
+			topPanel.setCursor(cursor.getLine() - 1, cursor.getColumn() - 1, shown);
 			topDirty = true;
 			break;
 		case ScreenModel.WINDOW_BOTTOM:
@@ -168,7 +168,7 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 
 		if (kindlet.inCharMode() && (kindlet.getActiveWindow() == ScreenModel.WINDOW_TOP)) {
 			TextCursor cursor = kindlet.getCursor();
-			topPanel.setCursor(false, cursor.getLine() - 1, cursor.getColumn() - 1);
+			topPanel.setCursor(cursor.getLine() - 1, cursor.getColumn() - 1, false);
 			topDirty = true;
 		}
 	}
