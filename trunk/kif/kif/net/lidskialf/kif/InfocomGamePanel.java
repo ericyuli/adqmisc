@@ -1,7 +1,5 @@
 package net.lidskialf.kif;
 
-import java.awt.event.ComponentEvent;
-import java.awt.event.ComponentListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.util.Iterator;
@@ -12,25 +10,28 @@ import org.zmpp.windowing.BufferedScreenModel;
 import org.zmpp.windowing.ScreenModel;
 import org.zmpp.windowing.ScreenModelListener;
 import org.zmpp.windowing.TextAnnotation;
+import org.zmpp.windowing.TextCursor;
 
 import com.amazon.kindle.kindlet.ui.KPanel;
 
-public class InfocomGamePanel extends KPanel implements ComponentListener, ScreenModelListener, KeyListener  {
+public class InfocomGamePanel extends KPanel implements ScreenModelListener, KeyListener  {
 	
 	private static final long serialVersionUID = -5395707640433304655L;
 	
-	public InfocomTopPanel topPanel;
-	public InfocomBottomPanel botPanel;
+	private InfocomTopPanel topPanel;
+	private InfocomBottomPanel botPanel;
+	private boolean topDirty = true;
+	private boolean botDirty = true;
 	private KifKindlet kindlet;
+	private boolean initialised = false;
 
 	public InfocomGamePanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
 
-		this.addComponentListener(this);
 		setLayout(null);
 		setFocusable(true);
-
-		this.botPanel = new InfocomBottomPanel(kindlet);		
+		
+		this.botPanel = new InfocomBottomPanel(kindlet);
 		add(this.botPanel);
 
 		this.topPanel = new InfocomTopPanel(kindlet);
@@ -45,24 +46,52 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 		return topPanel.getRows();
 	}
 
-	public void componentHidden(ComponentEvent arg0) {
+	public void setUserInputStyle(TextAnnotation ta) {
+		botPanel.setUserInputStyle(ta);
 	}
-
-	public void componentMoved(ComponentEvent arg0) {
+	
+	public void updateCursor(boolean shown) {
+		switch(kindlet.getActiveWindow()) {
+		case ScreenModel.WINDOW_TOP:
+			TextCursor cursor = kindlet.getCursor();
+			topPanel.setCursor(shown, cursor.getLine() - 1, cursor.getColumn() - 1);
+			topDirty = true;
+			break;
+		case ScreenModel.WINDOW_BOTTOM:
+			// FIXME: update bottom window cursor
+			break;
+		}
 	}
-
-	public void componentResized(ComponentEvent arg0) {
+	
+	public void repaintDirty() {
+		if (topDirty)
+			topPanel.repaint();
+		if (botDirty)
+			botPanel.repaint();
+		topDirty = false;
+		botDirty = false;
 	}
+	
+	public void init(int width, int height) {
+		if (initialised)
+			return;
 
-	public void componentShown(ComponentEvent arg0) {
 		topPanel.setLocation(0, 0);
-		topPanel.setSize(getWidth(), getHeight());
-		topPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)));
+		topPanel.setSize(width, height);
+		topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 		
 		botPanel.setLocation(0, 0);
-		botPanel.setSize(getWidth(), getHeight());
+		botPanel.setSize(width, height);
 		botPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)));
+		
+		initialised = true;
 	}
+	
+	public void clear(int bgColour, int fgColour) {
+		topPanel.clear(bgColour, fgColour, 0);
+		botPanel.clear(bgColour, fgColour);
+	}
+	
 	
 	
 	
@@ -90,41 +119,57 @@ public class InfocomGamePanel extends KPanel implements ComponentListener, Scree
 	public void screenModelUpdated(ScreenModel screenModel) {
 		BufferedScreenModel bsm = (BufferedScreenModel) screenModel;
 	    Iterator it = bsm.getLowerBuffer().listIterator();
-	    while(it.hasNext()) {
+	    while(it.hasNext())
 			botPanel.appendString((AnnotatedText) it.next());
-	    }
+	    botPanel.setUserInputStyle(screenModel.getBottomAnnotation());
+	    botDirty = true;
 	}
 
 	public void windowErased(int window) {
-		// FIXME: implement
-		
-		kindlet.getLogger().error("WINDOWERASED " + window);
-		
-		// FIXME: need to reset colours
-		
+		kindlet.getLogger().error("ERASE " + window);
+
 		switch(window) {
 		case -1:
-			topPanel.clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), kindlet.getNumRowsUpper());
 			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			topDirty = true;
+			botDirty = true;
 			break;
 		case ScreenModel.WINDOW_BOTTOM:
 			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			botDirty = true;
 			break;
 		case ScreenModel.WINDOW_TOP:
-			topPanel.clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), kindlet.getNumRowsUpper());
+			topDirty = true;
 			break;
 		}
 	}
 
-	public void screenSplit(int linesUpperWindow) {
+	public void screenSplit(int linesUpperWindow) {	
+		
+		// FIXME: why is there  asplit of 1 appearing here?
+		
+		kindlet.getLogger().error("SPLIT " + linesUpperWindow);
 		topPanel.setVisibleRows(linesUpperWindow);
+		if (kindlet.getVersion() == 3)
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), linesUpperWindow);
 	}
 
 	public void topWindowUpdated(int cursorx, int cursory, AnnotatedCharacter c) {
+		kindlet.getLogger().error("TOP " + cursorx + " " + cursory + " " + c.getCharacter());
+		
 		topPanel.setChar(cursory - 1, cursorx - 1, c);
+		topDirty = true;
 	}
 
 	public void topWindowCursorMoving(int line, int column) {
-		topPanel.setCursor(true, line - 1, column - 1);
+		kindlet.getLogger().error("CURSOR " + line + " " + column);
+
+		if (kindlet.inCharMode() && (kindlet.getActiveWindow() == ScreenModel.WINDOW_TOP)) {
+			TextCursor cursor = kindlet.getCursor();
+			topPanel.setCursor(false, cursor.getLine() - 1, cursor.getColumn() - 1);
+			topDirty = true;
+		}
 	}
 }

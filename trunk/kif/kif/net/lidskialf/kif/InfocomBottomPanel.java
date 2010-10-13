@@ -52,6 +52,8 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		TextAnnotation ta = toAppend.getAnnotation();
 		String txt = toAppend.getText().replace('\r', '\n');
 
+		kindlet.getLogger().error(txt);
+		
 		int toAppendLength = txt.length();
 		if (toAppendLength == 0)
 			return;
@@ -105,7 +107,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		}
 		
 		recalc();
-		repaint();
+		repaint(); // FIXME: can this be optimised?
 	}
 
 	public void clear(int bgColour, int fgColour) {
@@ -218,6 +220,8 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		// delete leading lines which are now off the top of the page
 		while(textLineIdx-- > 0)
 			textLines.remove(0);
+		
+		kindlet.getLogger().error("" + textLines.size());
 	}
 	
 	public void setFont(Font f) {
@@ -236,7 +240,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			return;
 
 		Rectangle clipBounds = g.getClipBounds();
-		g.setColor(Color.BLACK);
 		
 		// figure out what screenlines we're drawing
 		int redrawCurScreenLine = clipBounds.y / lineHeight;
@@ -249,7 +252,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		LineDetails curLineDetails = (LineDetails) textLines.get(curLineDetailsIdx++);
 		LinkedList ats = curLineDetails.getText();
 		int atLength = ats.size();
-		int y = ((redrawCurScreenLine + 1) * lineHeight) - fontMetrics.getDescent();
+		int y = redrawCurScreenLine * lineHeight;
 		for(int lineIdx = redrawCurScreenLine; lineIdx < redrawLastScreenLine; lineIdx++) {
 			// keep looping if we're before the first line
 			if (lineIdx < curLineDetails.screenLineFirst)
@@ -305,7 +308,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 
 				// draw the foregound
 				g.setColor(kindlet.getAWTForegroundColor(ta));
-				g.drawChars(chars, startCharIdx, drawLength, x, y);
+				g.drawChars(chars, startCharIdx, drawLength, x, y + lineHeight - fontMetrics.getDescent());
 				startCharIdx = 0;
 				x += width;
 			}

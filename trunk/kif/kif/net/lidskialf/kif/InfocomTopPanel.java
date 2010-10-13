@@ -18,8 +18,8 @@ public class InfocomTopPanel extends KComponent {
 	
 	private AnnotatedCharacter defaultChar;
 	private AnnotatedCharacter cursorChar;
-	private int defaultBgColor = ScreenModel.COLOR_WHITE;
-	private int defaultFgColor = ScreenModel.COLOR_BLACK;
+	private int defaultBgColor;
+	private int defaultFgColor;
 
 	private int numRows = 0;
 	private int numCols = 0;
@@ -46,6 +46,8 @@ public class InfocomTopPanel extends KComponent {
 	}
 
 	public void setVisibleRows(int rows) {
+		if (rows < 0)
+			rows = 0;
 		if (rows > numRows)
 			rows = numRows;
 
@@ -86,22 +88,23 @@ public class InfocomTopPanel extends KComponent {
 		for(int row = 0; row < numRows && row < visibleRows; row++)
 			for(int col = 0; col < numCols; col++)
 				charArray[row][col] = defaultChar;
-		
+
 		for(int row = visibleRows; row < numRows; row++)
 			for(int col = 0; col < numCols; col++)
 				charArray[row][col] = null;
+
+		setVisibleRows(visibleRows);
 	}
 
-	public void setFont(Font f) {
-		super.setFont(f);
-		
+	public void init(Font f, int width, int height) {
 		FontMetrics fontMetrics = getFontMetrics(f);
 		charWidth = fontMetrics.charWidth('0');
 		charHeight = fontMetrics.getHeight();
-		numRows = getHeight() / charHeight;
-		numCols = getWidth() / charWidth;
+		numRows = height / charHeight;
+		numCols = width / charWidth;
+		charArray = new AnnotatedCharacter[numRows][numCols];
 
-		clear(kindlet.getNumRowsUpper(), kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+		clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), 0);
 	}
 
 	public void paint(Graphics g) {
