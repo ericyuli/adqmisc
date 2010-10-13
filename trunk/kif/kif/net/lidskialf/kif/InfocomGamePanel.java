@@ -146,8 +146,7 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 
 	public void screenSplit(int linesUpperWindow) {
 		// slightly odd screen model; toppanel is treated as a transparent overlay covering the whole of the screen
-		// botpanel is adjusted so its starting X position is the visible top panel rows.
-		// The kindle's AWT windows seem to be transparent if you don't draw anything on 'em
+		// botpanel is adjusted so its starting X position is the *guaranteed* visible top panel rows.
 		int topHeight = linesUpperWindow * topPanel.getRowHeight();
 		botPanel.setBounds(0, topHeight, getWidth(), getHeight() - topHeight);
 
