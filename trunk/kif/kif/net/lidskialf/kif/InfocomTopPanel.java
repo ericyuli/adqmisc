@@ -44,14 +44,9 @@ public class InfocomTopPanel extends KComponent {
 	public int getCols() {
 		return numCols;
 	}
-
-	public void setVisibleRows(int rows) {
-		if (rows < 0)
-			rows = 0;
-		if (rows > numRows)
-			rows = numRows;
-
-		this.setSize(getWidth(), rows * charHeight);
+	
+	public int getRowHeight() {
+		return charHeight;
 	}
 
 	public void setChar(int row, int col, AnnotatedCharacter c) {
@@ -92,8 +87,6 @@ public class InfocomTopPanel extends KComponent {
 		for(int row = visibleRows; row < numRows; row++)
 			for(int col = 0; col < numCols; col++)
 				charArray[row][col] = null;
-
-		setVisibleRows(visibleRows);
 	}
 
 	public void init(Font f, int width, int height) {
@@ -105,6 +98,7 @@ public class InfocomTopPanel extends KComponent {
 		charArray = new AnnotatedCharacter[numRows][numCols];
 
 		clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), 0);
+
 	}
 
 	public void paint(Graphics g) {

@@ -75,18 +75,18 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 	public void init(int width, int height) {
 		if (initialised)
 			return;
-
-		topPanel.setLocation(0, 0);
-		topPanel.setSize(width, height);
-		topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 		
 		botPanel.setLocation(0, 0);
 		botPanel.setSize(width, height);
 		botPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)));
-		
+
+		topPanel.setLocation(0, 0);
+		topPanel.setSize(width, height);
+		topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
+
 		initialised = true;
 	}
-	
+
 	public void clear(int bgColour, int fgColour) {
 		topPanel.clear(bgColour, fgColour, 0);
 		botPanel.clear(bgColour, fgColour);
@@ -126,8 +126,6 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 	}
 
 	public void windowErased(int window) {
-		kindlet.getLogger().error("ERASE " + window);
-
 		switch(window) {
 		case -1:
 			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), kindlet.getNumRowsUpper());
@@ -146,26 +144,24 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 		}
 	}
 
-	public void screenSplit(int linesUpperWindow) {	
-		
-		// FIXME: why is there  asplit of 1 appearing here?
-		
-		kindlet.getLogger().error("SPLIT " + linesUpperWindow);
-		topPanel.setVisibleRows(linesUpperWindow);
+	public void screenSplit(int linesUpperWindow) {
+		// slightly odd screen model; toppanel is treated as a transparent overlay covering the whole of the screen
+		// botpanel is adjusted so its starting X position is the visible top panel rows.
+		// The kindle's AWT windows seem to be transparent if you don't draw anything on 'em
+		int topHeight = linesUpperWindow * topPanel.getRowHeight();
+		botPanel.setBounds(0, topHeight, getWidth(), getHeight() - topHeight);
+
 		if (kindlet.getVersion() == 3)
 			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), linesUpperWindow);
+		topDirty = true;
 	}
 
 	public void topWindowUpdated(int cursorx, int cursory, AnnotatedCharacter c) {
-		kindlet.getLogger().error("TOP " + cursorx + " " + cursory + " " + c.getCharacter());
-		
 		topPanel.setChar(cursory - 1, cursorx - 1, c);
 		topDirty = true;
 	}
 
 	public void topWindowCursorMoving(int line, int column) {
-		kindlet.getLogger().error("CURSOR " + line + " " + column);
-
 		if (kindlet.inCharMode() && (kindlet.getActiveWindow() == ScreenModel.WINDOW_TOP)) {
 			TextCursor cursor = kindlet.getCursor();
 			topPanel.setCursor(cursor.getLine() - 1, cursor.getColumn() - 1, false);
