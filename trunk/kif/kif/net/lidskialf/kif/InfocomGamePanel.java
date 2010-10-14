@@ -27,12 +27,12 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 		this.kindlet = kindlet;
 
 		setLayout(null);
-		
-		this.botPanel = new InfocomBottomPanel(kindlet);
-		add(this.botPanel);
 
 		this.topPanel = new InfocomTopPanel(kindlet);
 		add(this.topPanel);
+		
+		this.botPanel = new InfocomBottomPanel(kindlet);
+		add(this.botPanel);
 	}
 	
 	public int getTopCols() {
