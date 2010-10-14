@@ -130,6 +130,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		try {
 			irqTimer.cancel();
 			vmThreadCancelled = true;
+			synchronized (userActionMonitor) {
+				userActionMonitor.notifyAll();
+			}
 			synchronized (gameExecMonitor) {
 				gameExecMonitor.notifyAll();
 			}
