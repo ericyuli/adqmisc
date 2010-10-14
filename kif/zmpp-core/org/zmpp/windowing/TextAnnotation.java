@@ -135,7 +135,7 @@ public class TextAnnotation implements Serializable {
    * @return font number
    */
   public char getFont() { return font; }
-
+  
   /**
    * Determines whether this annotation has a fixed style font.
    * @return true if fixed, false if variable font
@@ -187,6 +187,10 @@ public class TextAnnotation implements Serializable {
     return "TextAnnotation, fixed: " + isFixed() + " bold: " + isBold() +
             " italic: " + isItalic() + " reverse: " + isReverseVideo() +
             " bg: " + background + " fg: " + foreground;
+  }
+  
+  public boolean equals(TextAnnotation ta) {
+	  return (font == ta.font) && (style == ta.style) && (foreground == ta.foreground) && (background == ta.background);
   }
 }
 
