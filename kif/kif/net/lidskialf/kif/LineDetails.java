@@ -21,9 +21,8 @@ public class LineDetails {
 	}
 	
 	public void append(AnnotatedText txt) {
-//		if (text.size() == 0) {
+		if (text.size() == 0) {
 			text.add(txt);
-			/*
 		} else {
 			AnnotatedText lastAT = (AnnotatedText) text.get(text.size() - 1);
 			TextAnnotation lastTA = lastAT.getAnnotation();
@@ -34,7 +33,6 @@ public class LineDetails {
 				text.add(txt);
 			}
 		}
-		*/
 		
 		this.screenLineLengthsDirty = true;
 	}
