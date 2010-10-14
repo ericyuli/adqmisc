@@ -10,6 +10,7 @@ import org.zmpp.windowing.ScreenModel;
 import org.zmpp.windowing.TextAnnotation;
 
 import com.amazon.kindle.kindlet.ui.KComponent;
+import com.amazon.kindle.kindlet.ui.KRepaintManager;
 
 
 public class InfocomTopPanel extends KComponent {
@@ -102,7 +103,6 @@ public class InfocomTopPanel extends KComponent {
 	}
 
 	public void paint(Graphics g) {
-
 		Rectangle redraw = g.getClipBounds();
 
 		int minRedrawRow = redraw.y / charHeight;

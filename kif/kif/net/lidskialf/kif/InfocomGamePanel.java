@@ -1,7 +1,5 @@
 package net.lidskialf.kif;
 
-import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
 import java.util.Iterator;
 
 import org.zmpp.windowing.AnnotatedCharacter;
@@ -14,7 +12,7 @@ import org.zmpp.windowing.TextCursor;
 
 import com.amazon.kindle.kindlet.ui.KPanel;
 
-public class InfocomGamePanel extends KPanel implements ScreenModelListener, KeyListener  {
+public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 	
 	private static final long serialVersionUID = -5395707640433304655L;
 	
@@ -29,7 +27,6 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 		this.kindlet = kindlet;
 
 		setLayout(null);
-		setFocusable(true);
 		
 		this.botPanel = new InfocomBottomPanel(kindlet);
 		add(this.botPanel);
@@ -64,12 +61,15 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 	}
 	
 	public void repaintDirty() {
-		if (topDirty)
+		if (topDirty) {
 			topPanel.repaint();
-		if (botDirty)
+			topDirty = false;
+		}
+		if (botDirty) {
+			botPanel.recalc();
 			botPanel.repaint();
-		topDirty = false;
-		botDirty = false;
+			botDirty = false;
+		}
 	}
 	
 	public void init(int width, int height) {
@@ -90,25 +90,17 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener, Key
 	public void clear(int bgColour, int fgColour) {
 		topPanel.clear(bgColour, fgColour, 0);
 		botPanel.clear(bgColour, fgColour);
+		topDirty = true;
+		botDirty = true;
 	}
 	
-	
-	
-	
-
-	public void keyPressed(KeyEvent arg0) {
-		// TODO Auto-generated method stub
-		
+	public String getUserInput(boolean appendToVisible) {
+		botDirty = true;
+		return botPanel.getUserInput(appendToVisible);
 	}
 
-	public void keyReleased(KeyEvent arg0) {
-		// TODO Auto-generated method stub
-		
-	}
-
-	public void keyTyped(KeyEvent arg0) {
-		// TODO Auto-generated method stub
-		
+	public void requestFocus() {
+		botPanel.requestFocus();
 	}
 
 	

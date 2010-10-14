@@ -29,7 +29,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 	private int intercharacterSpaceBuffer = 0;
 
 	private TextAnnotation userInputTa;
-	private boolean userInput = false;
 
 	private KifKindlet kindlet;
 	private int defaultBgColor;
@@ -45,17 +44,18 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		this.defaultFgColor = kindlet.getDefaultForeground();
 
 		this.addTextListener(this);
+		this.setFocusable(true);
 	}
 
 	public void appendString(AnnotatedText toAppend) {
 		TextAnnotation ta = toAppend.getAnnotation();
 		String txt = toAppend.getText().replace('\r', '\n');
-
-		kindlet.getLogger().error(txt);
 		
 		int toAppendLength = txt.length();
 		if (toAppendLength == 0)
 			return;
+
+		kindlet.getLogger().error("APPEND " + txt);
 		
 		// split string up at newlines and add into the textLines list
 		int firstCharIdx = 0;
@@ -78,35 +78,58 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 				firstCharIdx = nextNewlineIdx + 1;				
 			}
 		}
-		
-		recalc();
 	}
 	
 	public void setUserInputStyle(TextAnnotation ta) {
 		userInputTa = ta;
 	}
+	
+	public String getUserInput(boolean appendToVisible) {
+		// need to strip any \n or \r characters from the text
+		StringBuffer sb = new StringBuffer();
+		char[] raw = getText().toCharArray();
+		for(int i=0; i< raw.length; i++) {
+			if ((raw[i] != '\n') && (raw[i] != '\r'))
+				sb.append(raw[i]);
+		}
+		String userInputText = sb.toString();
+
+		if (appendToVisible) {
+			curLine.clearScreenLines();
+			appendString(new AnnotatedText(userInputTa, userInputText + "\n"));
+		}
+		
+		setText("");
+		return userInputText;
+	}
 
 	public void textValueChanged(TextEvent txt) {
-		String userInputText = getText();
-		if ((!userInput) && (userInputText.length() == 0))
-			return;
-
-		// if it ended in \n, or we're in character mode, submit it to the VM!
-		// TODO: Fix bug where pressing left then return inserts \n into the input
-		if (userInputText.endsWith("\n") || kindlet.inCharMode()) {
-			kindlet.userInput(userInputText);
-			
-			curLine.setInputText(null);
-			curLine.append(new AnnotatedText(userInputText));
-			userInput = false;
+		// in character mode, react to text changes immediately and send the last entered character to the VM
+		if (kindlet.inCharMode()) {
+			String s = getText();
+			if (s.length() == 0)
+				return;
+			kindlet.userInput(s.substring(s.length() - 1, s.length()));
 			setText("");
-		} else {
-			curLine.setInputText(new AnnotatedText(userInputTa, userInputText));
-			userInput = true;
+			return;
 		}
-
-		recalc();
-		repaint(); // FIXME: can this be optimised?
+		
+		// in line mode, only send line to VM when it has a \n in it. Otherwise, show it on the screen
+		if (kindlet.inLineMode()) {
+			if (getText().indexOf('\n') == -1) {
+				int oldStartLine = curLine.screenLineFirst;
+				int oldEndLine = oldStartLine + curLine.screenLineLengths.size();
+				
+				curLine.clearScreenLines();
+				recalc(); // FIXME: optimise this?
+				
+				int startLine = Math.min(oldStartLine, curLine.screenLineFirst);
+				int endLine = Math.max(oldEndLine, curLine.screenLineFirst + curLine.screenLineLengths.size());
+				repaint(0, startLine * lineHeight, getWidth(), (endLine - startLine) * lineHeight);
+			} else {
+				kindlet.userInput(getUserInput(true));
+			}
+		}
 	}
 
 	public void clear(int bgColour, int fgColour) {
@@ -119,22 +142,23 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		textLines.add(curLine);
 
 		setText("");
-
-		recalc();
-		repaint();
 	}
 
-	private void recalc() {
+	public void recalc() {
 		int screenWidth = getWidth();
 		if ((screenWidth == 0) || (linesPerPage == 0))
 			return;
 
 		// first of all we calculate the width of the screen lines each textLine would require for new or dirty lines
+		int totalScreenLines = 0;
 		for(int textLineIdx=0; textLineIdx < textLines.size(); textLineIdx++) {
 			LineDetails ld = (LineDetails) textLines.get(textLineIdx);
 			
-			if (!ld.screenLineLengthsDirty)
+			// skip current line if its not dirty
+			if (!ld.screenLineLengthsDirty) {
+				totalScreenLines += ld.screenLineLengths.size();
 				continue;
+			}
 
 			// get the current TextOffset
 			int curAtIdx = 0;
@@ -147,24 +171,26 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 
 			// go through AnnotatedTexts
 			LinkedList ats = ld.getText();
-			int atLength = ats.size();
-			int lineWidth = 0;
+			int atsLength = ats.size();
+			int curLineWidth = 0;
+			int curWordWidth = 0;
 			char prevC = '\0';
 			int lastWordAtIdx = -1;
 			int lastWordCharIdx = -1;
-			int wordWidth = 0;
-			for(; curAtIdx <= atLength; curAtIdx++) { /* note the "<=" so we have an extra idx for the userinputtext */
+			for(; curAtIdx <= atsLength; curAtIdx++) { /* note the "<=" so we have an extra idx for the userinputtext */
 				// get current AnnotatedText details
-				AnnotatedText curAt = null;
-				if (curAtIdx < atLength) {
-					curAt = (AnnotatedText) ats.get(curAtIdx);
+				TextAnnotation ta = null;
+				String txt = null;
+				if (curAtIdx < atsLength) {
+					AnnotatedText curAt = (AnnotatedText) ats.get(curAtIdx);
+					ta = curAt.getAnnotation();
+					txt = curAt.getText();
 				} else {
-					curAt = ld.getInputText();
-					if (curAt == null)
+					ta = userInputTa;
+					txt = getText();
+					if ((txt == null) || (txt.length() == 0))
 						break;
 				}
-				TextAnnotation ta = curAt.getAnnotation();
-				String txt = curAt.getText();
 				int txtLength = txt.length();
 				FontMetrics fontMetrics = getFontMetrics(kindlet.getAWTFont(ta));
 
@@ -174,27 +200,27 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 					if (prevC == ' ' && c != ' ') {
 						lastWordAtIdx = curAtIdx;
 						lastWordCharIdx = curCharIdx;
-						wordWidth = 0;
+						curWordWidth = 0;
 					}
 
 					int charWidth = fontMetrics.charWidth(c);
-					wordWidth += charWidth;
+					curWordWidth += charWidth;
 
-					boolean lineOverflowsScreenWidth = (lineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth;
+					boolean lineOverflowsScreenWidth = (curLineWidth + charWidth + intercharacterSpaceBuffer) > screenWidth;
 					boolean charCanBeginNewLine = c != ' ';
 					if (lineOverflowsScreenWidth && charCanBeginNewLine) {
 						if (lastWordCharIdx == -1) {
 							ld.screenLineLengths.add(new LineDetails.TextOffset(curAtIdx, curCharIdx));
-							lineWidth = charWidth;
+							curLineWidth = charWidth;
 						} else {
 							ld.screenLineLengths.add(new LineDetails.TextOffset(lastWordAtIdx, lastWordCharIdx));
-							lineWidth = wordWidth;
+							curLineWidth = curWordWidth;
 						}
 						lastWordAtIdx = -1;
 						lastWordCharIdx = -1;
-						wordWidth = 0;
+						curWordWidth = 0;
 					} else {
-						lineWidth += charWidth;
+						curLineWidth += charWidth;
 					}
 					prevC = c;
 				}
@@ -203,24 +229,27 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			
 			ld.screenLineLengths.add(new LineDetails.TextOffset(curAtIdx, curCharIdx));
 			ld.screenLineLengthsDirty = false;
+			totalScreenLines += ld.screenLineLengths.size();
 		}
 		
 		// now we allocate textLines to screen lines
-		int curScreenLine = linesPerPage - 1;
-		int textLineIdx = textLines.size() - 1;
-		for(; textLineIdx >= 0; textLineIdx--) {
+		int curScreenLine = 0;
+		if (totalScreenLines > (linesPerPage - 1))
+			curScreenLine = linesPerPage - 1 - totalScreenLines;
+		for(int textLineIdx = 0; textLineIdx < textLines.size(); textLineIdx++) {
 			LineDetails ld = (LineDetails) textLines.get(textLineIdx);
-			curScreenLine -= ld.screenLineLengths.size();
 			ld.screenLineFirst = curScreenLine;
-			if (curScreenLine < 0)
-				break;
+			curScreenLine += ld.screenLineLengths.size();
 		}
 		
-		// delete leading lines which are now off the top of the page
-		while(textLineIdx-- > 0)
+		// delete leading textlines which are now completely off the top of the page
+		while(textLines.size() > 0) {
+			LineDetails ld = (LineDetails) textLines.get(0);
+			if ((ld.screenLineFirst + ld.screenLineLengths.size()) > 0)
+				break;
+
 			textLines.remove(0);
-		
-		kindlet.getLogger().error("" + textLines.size());
+		}
 	}
 	
 	public void setFont(Font f) {
@@ -239,65 +268,57 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			return;
 
 		Rectangle clipBounds = g.getClipBounds();
-		
+
 		// figure out what screenlines we're drawing
 		int redrawCurScreenLine = clipBounds.y / lineHeight;
-		int redrawLastScreenLine = ((clipBounds.y + clipBounds.height) / lineHeight) + 1;
+		int redrawLastScreenLine = (clipBounds.y + clipBounds.height) / lineHeight;
 		
-		// draw lines
+		// now, draw lines
 		int curLineDetailsIdx = 0;
-		int startAtIdx = 0;
-		int startCharIdx = 0;
 		LineDetails curLineDetails = (LineDetails) textLines.get(curLineDetailsIdx++);
-		LinkedList ats = curLineDetails.getText();
-		int atLength = ats.size();
-		int y = redrawCurScreenLine * lineHeight;
-		for(int lineIdx = redrawCurScreenLine; lineIdx < redrawLastScreenLine; lineIdx++) {
-			// keep looping if we're before the first line
-			if (lineIdx < curLineDetails.screenLineFirst)
-				continue;
-
-			// figure out the local line and move to the next LineDetails if necessary
-			int localLineIdx = lineIdx - curLineDetails.screenLineFirst;
-			if (localLineIdx >= curLineDetails.screenLineLengths.size()) {
-				if (curLineDetailsIdx >= textLines.size())
-					break;
-
+		for(; redrawCurScreenLine <= redrawLastScreenLine; redrawCurScreenLine++) {
+			// get the local line offset in the LineDetails, or move to the next if we've run out
+			int localLineIdx = redrawCurScreenLine - curLineDetails.screenLineFirst;
+			while(localLineIdx >= curLineDetails.screenLineLengths.size()) {
 				curLineDetails = (LineDetails) textLines.get(curLineDetailsIdx++);
-				ats = curLineDetails.getText();
-				atLength = ats.size();
-				localLineIdx = 0;
-				startCharIdx = 0;
+				localLineIdx = redrawCurScreenLine - curLineDetails.screenLineFirst;
 			}
 			
-			// figure out where this screenline ends
-			LineDetails.TextOffset lastCharOffset = (LineDetails.TextOffset) curLineDetails.screenLineLengths.get(localLineIdx);
-			int lastAtIdx = lastCharOffset.atIdx;
-			int lastCharIdx = lastCharOffset.charIdx;
-			
-			// draw the screenline
+			// figure out the start and ending AT/chars to draw at
+			LineDetails.TextOffset startOffset = null;
+			if (localLineIdx == 0)
+				startOffset = new LineDetails.TextOffset(0, 0);
+			else
+				startOffset = (LineDetails.TextOffset) curLineDetails.screenLineLengths.get(localLineIdx - 1);
+			LineDetails.TextOffset endOffset = (LineDetails.TextOffset) curLineDetails.screenLineLengths.get(localLineIdx);
+
+			// Now, draw stuff!
+			int startCharIdx = startOffset.charIdx;
+			int atsLength = curLineDetails.getText().size();
 			int x = 0;
-			for(int curAtIdx = startAtIdx; curAtIdx <= lastAtIdx; curAtIdx++) {
-				// get current AnnotatedText details
-				AnnotatedText curAt = null;
-				if (curAtIdx < atLength) {
-					curAt = (AnnotatedText) ats.get(curAtIdx);
+			int y = (redrawCurScreenLine * lineHeight) + lineHeight - fontMetrics.getDescent();
+			for(int curAtIdx = startOffset.atIdx; curAtIdx <= endOffset.atIdx; curAtIdx++) {
+				TextAnnotation ta = null;
+				String txt = null;
+				if (curAtIdx < atsLength) {
+					AnnotatedText at = (AnnotatedText) curLineDetails.getText().get(curAtIdx);
+					ta = at.getAnnotation();
+					txt = at.getText();
 				} else {
-					curAt = curLineDetails.getInputText();
-					if (curAt == null)
-						break;
+					ta = userInputTa;
+					txt = getText();
+					if ((txt == null) || (txt.length() == 0))
+						break;						
 				}
-				TextAnnotation ta = curAt.getAnnotation();
-				String txt = curAt.getText();
 				
 				// figure out the font and the row/col offset to draw at
 				g.setFont(kindlet.getAWTFont(ta));
 				FontMetrics fontMetrics = g.getFontMetrics();
-				
+
 				// figure out what to draw this time
 				int drawLength = txt.length() - startCharIdx;
-				if (curAtIdx == lastAtIdx)
-					drawLength = lastCharIdx - startCharIdx;
+				if (curAtIdx == endOffset.atIdx)
+					drawLength = endOffset.charIdx - startCharIdx;
 				char[] chars = txt.toCharArray();
 				int width = fontMetrics.charsWidth(chars, startCharIdx, drawLength);
 
@@ -307,14 +328,11 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 
 				// draw the foregound
 				g.setColor(kindlet.getAWTForegroundColor(ta));
-				g.drawChars(chars, startCharIdx, drawLength, x, y + lineHeight - fontMetrics.getDescent());
+				g.drawChars(chars, startCharIdx, drawLength, x, y);
+				
 				startCharIdx = 0;
 				x += width;
 			}
-
-			// update for next iteration
-			y += lineHeight;
-			startCharIdx = lastCharIdx;
 		}
 	}
 }
