@@ -458,17 +458,44 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
 
 			public boolean dispatchKeyEvent(KeyEvent e) {
-				// if we're not on the main screen when we get a "BACK", trap it and return to the main game screen
-				if (e.getKeyCode() == KindleKeyCodes.VK_BACK) {
-					if ((content.getComponent(0) != gameComponent) && (content.getComponent(0) != noGameLoadedComponent)) {
-						showMainComponent();
-						synchronized (KifKindlet.this.userActionMonitor) {
-							selectedFile = null;
-							KifKindlet.this.userActionMonitor.notifyAll();
+				Component displayed = content.getComponent(0);
+				if (e.isConsumed())
+					return false;
+				
+				switch(e.getKeyCode()) {
+				case KindleKeyCodes.VK_BACK:
+					// if we're not on the main screen when we get a "BACK", trap it and return to the main game screen
+					if ((displayed != gameComponent) && (displayed != noGameLoadedComponent)) {
+						if (e.getID() == KeyEvent.KEY_RELEASED) {
+							showMainComponent();
+							synchronized (KifKindlet.this.userActionMonitor) {
+								selectedFile = null;
+								KifKindlet.this.userActionMonitor.notifyAll();
+							}
 						}
+						e.consume();
 						return true;
 					}
+					break;
 				}
+				
+				/*
+				
+				// if we're in char mode, just forward the key directly to the VM
+				// FIXME: need to handle SYM key stuff properly!
+				if ((displayed == gameComponent) && inCharMode()) {
+					// only react to key released events here
+//					if (e.getID() != KeyEvent.KEY_RELEASED)
+//						return consume(e);
+
+					String s= gameComponent.getUserInput(false);
+					getLogger().error("CHARINPUT '" + s + "'");
+					
+					userInput(String.valueOf(e.getKeyChar()));
+					e.consume();
+					return true;
+				}
+				*/
 
 				return false;
 			}
@@ -565,7 +592,8 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		executionControl.resizeScreen(gameComponent.getTopRows(), gameComponent.getTopCols());
 		gameComponent.setUserInputStyle(screenModel.getBottomAnnotation());
 		gameComponent.clear(getDefaultBackground(), getDefaultForeground());
-
+		gameComponent.repaintDirty();
+	
 		userInput(null);
 	}
 
@@ -578,8 +606,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 				if (userInput != null)
 					executionControl.setTextToInputBuffer(userInput);
 	
-				// FIXME: buffer mode false
-	
+				// output is supposed to be shown in the interrupt, so disable buffering temporarily
+				screenModel.setBufferMode(false);
+
 				switch(executionControl.callInterrupt(runState.getRoutine())) {
 				case Instruction.TRUE:
 					irqTimer.cancel();
@@ -590,8 +619,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					// FIXME: what to do here?
 					break;				
 				}
-	
-				// FIXME: buffer mode true
+
+				// paint anything that changed and reenable buffering
+				gameComponent.repaintDirty();
+				screenModel.setBufferMode(true);
 			}
 		} 
 	}
@@ -605,15 +636,16 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 						gameExecMonitor.wait();
 						if (vmThreadCancelled)
 							break;
-		
+
 						irqTimer.cancel();
+
 						if (input != null)
 							runState = executionControl.resumeWithInput(input);
 						else
 							runState = executionControl.run();
-		
-						if (runState.getRoutine() > 0)
-							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
+
+//						if (runState.getRoutine() > 0)
+//							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
 						gameComponent.updateCursor(runState.isWaitingForInput());
 						gameComponent.repaintDirty();
 					} catch (Throwable t) {
