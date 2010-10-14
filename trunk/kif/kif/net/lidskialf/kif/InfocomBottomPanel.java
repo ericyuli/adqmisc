@@ -54,8 +54,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		int toAppendLength = txt.length();
 		if (toAppendLength == 0)
 			return;
-
-		kindlet.getLogger().error("APPEND " + txt);
 		
 		// split string up at newlines and add into the textLines list
 		int firstCharIdx = 0;
@@ -231,6 +229,8 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			ld.screenLineLengthsDirty = false;
 			totalScreenLines += ld.screenLineLengths.size();
 		}
+		
+		// FIXME: not sure allocation is quite working right yet
 		
 		// now we allocate textLines to screen lines
 		int curScreenLine = 0;
