@@ -4,6 +4,8 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Rectangle;
+import java.awt.event.ComponentEvent;
+import java.awt.event.ComponentListener;
 import java.awt.event.TextEvent;
 import java.awt.event.TextListener;
 import java.util.ArrayList;
@@ -16,7 +18,7 @@ import org.zmpp.windowing.TextAnnotation;
 
 import com.amazon.kindle.kindlet.ui.KTextArea;
 
-public class InfocomBottomPanel extends KTextArea implements TextListener {
+public class InfocomBottomPanel extends KTextArea implements TextListener, ComponentListener {
 
 	private static final long serialVersionUID = -6892004540095453828L;
 
@@ -31,8 +33,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 	private TextAnnotation userInputTa;
 
 	private KifKindlet kindlet;
-	private int defaultBgColor;
-	private int defaultFgColor;
 
 
 	public InfocomBottomPanel(KifKindlet kindlet) {
@@ -40,11 +40,10 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		this.curLine = new LineDetails(new AnnotatedText(""));
 		this.textLines.add(this.curLine);
 		this.userInputTa = new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN, kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
-		this.defaultBgColor = kindlet.getDefaultBackground();
-		this.defaultFgColor = kindlet.getDefaultForeground();
 
 		this.addTextListener(this);
 		this.setFocusable(true);
+		this.addComponentListener(this);
 	}
 
 	public void appendString(AnnotatedText toAppend) {
@@ -117,10 +116,10 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			if (getText().indexOf('\n') == -1) {
 				int oldStartLine = curLine.screenLineFirst;
 				int oldEndLine = oldStartLine + curLine.screenLineLengths.size();
-				
+
 				curLine.clearScreenLines();
 				recalc(); // FIXME: optimise this?
-				
+
 				int startLine = Math.min(oldStartLine, curLine.screenLineFirst);
 				int endLine = Math.max(oldEndLine, curLine.screenLineFirst + curLine.screenLineLengths.size());
 				repaint(0, startLine * lineHeight, getWidth(), (endLine - startLine) * lineHeight);
@@ -131,8 +130,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 	}
 
 	public void clear(int bgColour, int fgColour) {
-		this.defaultBgColor = bgColour;
-		this.defaultFgColor = fgColour;
 		textLines.clear();
 
 		TextAnnotation ta = new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN, bgColour, fgColour);
@@ -140,6 +137,19 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 		textLines.add(curLine);
 
 		setText("");
+	}
+	
+	public void init(Font f, int width, int height) {
+		fontMetrics = getFontMetrics(f);
+		lineHeight = fontMetrics.getHeight();
+		linesPerPage = getHeight() / lineHeight;
+		intercharacterSpaceBuffer = fontMetrics.charWidth(' ');		
+		for(int txtIdx = 0; txtIdx < textLines.size(); txtIdx++) {
+			LineDetails ld = (LineDetails) textLines.get(txtIdx);
+			ld.clearScreenLines();
+		}
+		recalc();
+		repaint();
 	}
 
 	public void recalc() {
@@ -230,12 +240,10 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 			totalScreenLines += ld.screenLineLengths.size();
 		}
 		
-		// FIXME: not sure allocation is quite working right yet
-		
 		// now we allocate textLines to screen lines
 		int curScreenLine = 0;
-		if (totalScreenLines > (linesPerPage - 1))
-			curScreenLine = linesPerPage - 1 - totalScreenLines;
+		if (totalScreenLines > linesPerPage)
+			curScreenLine = linesPerPage - totalScreenLines;
 		for(int textLineIdx = 0; textLineIdx < textLines.size(); textLineIdx++) {
 			LineDetails ld = (LineDetails) textLines.get(textLineIdx);
 			ld.screenLineFirst = curScreenLine;
@@ -250,17 +258,6 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 
 			textLines.remove(0);
 		}
-	}
-	
-	public void setFont(Font f) {
-		super.setFont(f);
-
-		fontMetrics = getFontMetrics(f);
-		lineHeight = fontMetrics.getHeight();
-		linesPerPage = getHeight() / lineHeight;
-		intercharacterSpaceBuffer = fontMetrics.charWidth(' ');
-		
-		clear(defaultBgColor, defaultFgColor);
 	}
 	
 	public void paint(Graphics g) {
@@ -334,5 +331,25 @@ public class InfocomBottomPanel extends KTextArea implements TextListener {
 				x += width;
 			}
 		}
+	}
+
+	public void componentHidden(ComponentEvent arg0) {
+	}
+
+	public void componentMoved(ComponentEvent arg0) {
+	}
+
+	public void componentResized(ComponentEvent arg0) {
+		linesPerPage = getHeight() / lineHeight;
+		intercharacterSpaceBuffer = fontMetrics.charWidth(' ');		
+		for(int txtIdx = 0; txtIdx < textLines.size(); txtIdx++) {
+			LineDetails ld = (LineDetails) textLines.get(txtIdx);
+			ld.clearScreenLines();
+		}
+		recalc();
+		repaint();
+	}
+
+	public void componentShown(ComponentEvent arg0) {
 	}
 }

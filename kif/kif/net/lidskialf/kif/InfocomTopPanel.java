@@ -10,14 +10,12 @@ import org.zmpp.windowing.ScreenModel;
 import org.zmpp.windowing.TextAnnotation;
 
 import com.amazon.kindle.kindlet.ui.KComponent;
-import com.amazon.kindle.kindlet.ui.KRepaintManager;
 
 
 public class InfocomTopPanel extends KComponent {
 	
 	private static final long serialVersionUID = 7383736491580909999L;
 	
-	private AnnotatedCharacter defaultChar;
 	private AnnotatedCharacter cursorChar;
 	private int defaultBgColor;
 	private int defaultFgColor;
@@ -31,9 +29,9 @@ public class InfocomTopPanel extends KComponent {
 	private int charWidth;
 
 	private KifKindlet kindlet;
+
 	
-
-
+	
 	public InfocomTopPanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
 	}
@@ -78,12 +76,12 @@ public class InfocomTopPanel extends KComponent {
 	public void clear(int bgColour, int fgColour, int visibleRows) {
 		this.defaultBgColor = bgColour;
 		this.defaultFgColor = fgColour;
-		defaultChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN, defaultBgColor, defaultFgColor), ' ');
+//		defaultChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN, defaultBgColor, defaultFgColor), ' ');
 		cursorChar = new AnnotatedCharacter(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_REVERSE_VIDEO, defaultBgColor, defaultFgColor), ' ');
 
 		for(int row = 0; row < numRows && row < visibleRows; row++)
 			for(int col = 0; col < numCols; col++)
-				charArray[row][col] = defaultChar;
+				charArray[row][col] = null; // used to be defaultChar, but curses has display problems. confirmation required.
 
 		for(int row = visibleRows; row < numRows; row++)
 			for(int col = 0; col < numCols; col++)

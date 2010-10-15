@@ -481,24 +481,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					}
 					break;
 				}
-				
-				/*
-				
-				// if we're in char mode, just forward the key directly to the VM
-				// FIXME: need to handle SYM key stuff properly!
-				if ((displayed == gameComponent) && inCharMode()) {
-					// only react to key released events here
-//					if (e.getID() != KeyEvent.KEY_RELEASED)
-//						return consume(e);
-
-					String s= gameComponent.getUserInput(false);
-					getLogger().error("CHARINPUT '" + s + "'");
-					
-					userInput(String.valueOf(e.getKeyChar()));
-					e.consume();
-					return true;
-				}
-				*/
 
 				return false;
 			}

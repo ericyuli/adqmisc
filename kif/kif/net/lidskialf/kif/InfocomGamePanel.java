@@ -73,16 +73,15 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 	}
 	
 	public void init(int width, int height) {
-		if (initialised)
-			return;
-		
 		botPanel.setLocation(0, 0);
 		botPanel.setSize(width, height);
-		botPanel.setFont(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)));
+		if (!initialised)
+			botPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 
 		topPanel.setLocation(0, 0);
 		topPanel.setSize(width, height);
-		topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
+		if (!initialised)
+			topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 
 		initialised = true;
 	}
