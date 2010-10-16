@@ -6,6 +6,8 @@ import java.awt.Graphics;
 import java.awt.Rectangle;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.event.TextEvent;
 import java.awt.event.TextListener;
 import java.util.ArrayList;
@@ -16,14 +18,19 @@ import org.zmpp.windowing.AnnotatedText;
 import org.zmpp.windowing.ScreenModel;
 import org.zmpp.windowing.TextAnnotation;
 
+import com.amazon.kindle.kindlet.event.KindleKeyCodes;
 import com.amazon.kindle.kindlet.ui.KTextArea;
 
-public class InfocomBottomPanel extends KTextArea implements TextListener, ComponentListener {
+public class InfocomBottomPanel extends KTextArea implements TextListener, ComponentListener, KeyListener {
 
 	private static final long serialVersionUID = -6892004540095453828L;
+	
+	private static final int COMMAND_HISTORY_MAX_SIZE = 100;
 
 	private List textLines = new ArrayList(); /* of LineDetails */
 	private LineDetails curLine = null;
+	private List commandHistory = new ArrayList(); /* of String */
+	private int commandHistoryPos = 0;
 
 	private FontMetrics fontMetrics = null;
 	private int linesPerPage = 0;
@@ -44,6 +51,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 		this.addTextListener(this);
 		this.setFocusable(true);
 		this.addComponentListener(this);
+		this.addKeyListener(this);
 	}
 
 	public void appendString(AnnotatedText toAppend) {
@@ -96,6 +104,11 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 			appendString(new AnnotatedText(userInputTa, userInputText + "\n"));
 		}
 		
+		commandHistory.add(userInputText);
+		while(commandHistory.size() > COMMAND_HISTORY_MAX_SIZE)
+			commandHistory.remove(0);
+		commandHistoryPos = commandHistory.size();
+
 		setText("");
 		return userInputText;
 	}
@@ -150,6 +163,8 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 		}
 		recalc();
 		repaint();
+		commandHistory.clear();
+		commandHistoryPos = 0;
 	}
 
 	public void recalc() {
@@ -351,5 +366,31 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 	}
 
 	public void componentShown(ComponentEvent arg0) {
+	}
+
+	public void keyPressed(KeyEvent e) {
+		
+		switch(e.getKeyCode()) {
+		case KindleKeyCodes.VK_FIVE_WAY_UP:
+			if (commandHistoryPos > 0) {
+				commandHistoryPos--;
+				setText((String) commandHistory.get(commandHistoryPos));
+			}
+			e.consume();
+			break;
+		case KindleKeyCodes.VK_FIVE_WAY_DOWN:
+			if (commandHistoryPos < (commandHistory.size() - 1)) {
+				commandHistoryPos++;
+				setText((String) commandHistory.get(commandHistoryPos));
+			}
+			e.consume();
+			break;
+		}
+	}
+
+	public void keyReleased(KeyEvent arg0) {
+	}
+
+	public void keyTyped(KeyEvent arg0) {
 	}
 }

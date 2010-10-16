@@ -21,7 +21,6 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 	private boolean topDirty = true;
 	private boolean botDirty = true;
 	private KifKindlet kindlet;
-	private boolean initialised = false;
 
 	public InfocomGamePanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
@@ -75,15 +74,11 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 	public void init(int width, int height) {
 		botPanel.setLocation(0, 0);
 		botPanel.setSize(width, height);
-		if (!initialised)
-			botPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
+		botPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_NORMAL, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 
 		topPanel.setLocation(0, 0);
 		topPanel.setSize(width, height);
-		if (!initialised)
-			topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
-
-		initialised = true;
+		topPanel.init(kindlet.getAWTFont(new TextAnnotation(ScreenModel.FONT_FIXED, ScreenModel.TEXTSTYLE_ROMAN)), width, height);
 	}
 
 	public void clear(int bgColour, int fgColour) {
