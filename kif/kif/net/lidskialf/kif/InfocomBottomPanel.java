@@ -1,5 +1,6 @@
 package net.lidskialf.kif;
 
+import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
@@ -151,6 +152,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 		textLines.add(curLine);
 
 		setText("");
+		setBackground(kindlet.getAWTColor(bgColour, ScreenModel.COLOR_WHITE));
 	}
 	
 	public void init(Font f, int width, int height) {
@@ -279,8 +281,12 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 	public void paint(Graphics g) {
 		if (linesPerPage == 0)
 			return;
-
+		
 		Rectangle clipBounds = g.getClipBounds();
+
+		// fill the background
+		g.setColor(getBackground());
+		g.fillRect(clipBounds.x, clipBounds.y, clipBounds.width, clipBounds.height);
 
 		// figure out what screenlines we're drawing
 		int redrawCurScreenLine = clipBounds.y / lineHeight;
@@ -334,11 +340,11 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 					drawLength = endOffset.charIdx - startCharIdx;
 				char[] chars = txt.toCharArray();
 				int width = fontMetrics.charsWidth(chars, startCharIdx, drawLength);
-
+				
 				// draw the background
 				g.setColor(kindlet.getAWTBackgroundColor(ta));
 				g.fillRect(x, y, width, lineHeight);
-
+				
 				// draw the foregound
 				g.setColor(kindlet.getAWTForegroundColor(ta));
 				g.drawChars(chars, startCharIdx, drawLength, x, y  + lineHeight - fontMetrics.getDescent());
