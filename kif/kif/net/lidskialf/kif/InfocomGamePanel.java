@@ -113,8 +113,15 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 
 	public void windowErased(int window) {
 		switch(window) {
-		case -1:
+		case -2:
 			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), kindlet.getNumRowsUpper());
+			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
+			topDirty = true;
+			botDirty = true;
+			break;
+		case -1:
+			screenSplit(0);
+			topPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), 0);
 			botPanel.clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground());
 			topDirty = true;
 			botDirty = true;
