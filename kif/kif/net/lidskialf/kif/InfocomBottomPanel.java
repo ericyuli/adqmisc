@@ -1,6 +1,5 @@
 package net.lidskialf.kif;
 
-import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
@@ -133,7 +132,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 				int oldEndLine = oldStartLine + curLine.screenLineLengths.size();
 
 				curLine.clearScreenLines();
-				recalc(); // FIXME: optimise this?
+				recalc();
 
 				int startLine = Math.min(oldStartLine, curLine.screenLineFirst);
 				int endLine = Math.max(oldEndLine, curLine.screenLineFirst + curLine.screenLineLengths.size());
