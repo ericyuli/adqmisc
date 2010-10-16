@@ -375,6 +375,9 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 		case KindleKeyCodes.VK_SYMBOL:
 			symbolPressed = !symbolPressed;
 			break;
+		case KindleKeyCodes.VK_BACK:
+			symbolPressed = false;
+			break;
 		case KindleKeyCodes.VK_FIVE_WAY_UP:
 			if (!symbolPressed) {
 				if (commandHistoryPos > 0) {
