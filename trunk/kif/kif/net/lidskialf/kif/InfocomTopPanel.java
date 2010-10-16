@@ -29,7 +29,6 @@ public class InfocomTopPanel extends KComponent {
 	private int charWidth;
 
 	private KifKindlet kindlet;
-
 	
 	
 	public InfocomTopPanel(KifKindlet kindlet) {
@@ -97,7 +96,6 @@ public class InfocomTopPanel extends KComponent {
 		charArray = new AnnotatedCharacter[numRows][numCols];
 
 		clear(kindlet.getDefaultBackground(), kindlet.getDefaultForeground(), 0);
-
 	}
 
 	public void paint(Graphics g) {
