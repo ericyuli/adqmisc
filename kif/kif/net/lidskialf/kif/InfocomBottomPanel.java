@@ -284,7 +284,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 		
 		Rectangle clipBounds = g.getClipBounds();
 
-		// fill the background
+		// fill the screen background
 		g.setColor(getBackground());
 		g.fillRect(clipBounds.x, clipBounds.y, clipBounds.width, clipBounds.height);
 
