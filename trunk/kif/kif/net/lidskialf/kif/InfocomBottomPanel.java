@@ -308,7 +308,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 			int startCharIdx = startOffset.charIdx;
 			int atsLength = curLineDetails.getText().size();
 			int x = 0;
-			int y = (redrawCurScreenLine * lineHeight) + lineHeight - fontMetrics.getDescent();
+			int y = (redrawCurScreenLine * lineHeight);
 			for(int curAtIdx = startOffset.atIdx; curAtIdx <= endOffset.atIdx; curAtIdx++) {
 				TextAnnotation ta = null;
 				String txt = null;
@@ -340,7 +340,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 
 				// draw the foregound
 				g.setColor(kindlet.getAWTForegroundColor(ta));
-				g.drawChars(chars, startCharIdx, drawLength, x, y);
+				g.drawChars(chars, startCharIdx, drawLength, x, y  + lineHeight - fontMetrics.getDescent());
 				
 				startCharIdx = 0;
 				x += width;
