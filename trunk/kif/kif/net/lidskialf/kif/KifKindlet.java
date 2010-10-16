@@ -5,13 +5,16 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.Toolkit;
+import java.awt.Transparency;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
@@ -28,6 +31,7 @@ import org.apache.log4j.*;
 import com.amazon.kindle.kindlet.*;
 import com.amazon.kindle.kindlet.event.KindleKeyCodes;
 import com.amazon.kindle.kindlet.ui.*;
+import com.amazon.kindle.kindlet.ui.image.ImageUtil;
 import com.amazon.kindle.kindlet.util.Timer;
 import com.amazon.kindle.kindlet.util.TimerTask;
 
@@ -44,6 +48,7 @@ import org.zmpp.vm.InvalidStoryException;
 import org.zmpp.vm.MachineRunState;
 import org.zmpp.vm.SaveGameDataStore;
 import org.zmpp.vm.MachineFactory.MachineInitStruct;
+import org.zmpp.vmutil.FileUtils;
 import org.zmpp.windowing.*;
 import org.zmpp.windowing.BufferedScreenModel.StatusLineListener;
 
@@ -109,11 +114,12 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		this.variableFont = new Font("SansSerif-aa", Font.PLAIN, 21);
 
 		initRootContent();
+		initTextOptions();
 		showMainComponent();
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
 		vmThread.start();
-
+		
 		// FIXME: load persisted game state
 	}
 
@@ -312,7 +318,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					}
 				}), "Select or enter filename...");
 
-				userActionMonitor.wait();				
+				try {
+					userActionMonitor.wait();				
+				} catch (InterruptedException ex) {}
 				if (selectedFile == null)
 					return false;
 	
@@ -343,7 +351,10 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 						return true;
 					}
 				}), "Please choose a saved game...");
-				userActionMonitor.wait();
+
+				try {
+					userActionMonitor.wait();				
+				} catch (InterruptedException ex) {}
 				if (selectedFile == null)
 					return null;
 	
@@ -376,7 +387,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					}
 				}), "Select or enter filename...");
 		
-				userActionMonitor.wait();				
+				try {
+					userActionMonitor.wait();				
+				} catch (InterruptedException ex) {}
 				if (selectedFile == null)
 					return null;
 	
@@ -405,7 +418,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					}
 				}), "Please choose an input file...");
 
-				userActionMonitor.wait();				
+				try {
+					userActionMonitor.wait();				
+				} catch (InterruptedException ex) {}
 				if (selectedFile == null)
 					return null;
 	
@@ -432,14 +447,30 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	}
 
 	public NativeImage createImage(InputStream inputStream) throws IOException {	
-		// whee, nasty hacking ahead!
-
-		// load the image from the input stream
-		Image img = Toolkit.getDefaultToolkit().createImage(new HackImageSource(inputStream));		
-		if (img == null)
+		BufferedImage bi = null;
+		try {
+			// load the image from the input stream
+			Image img = Toolkit.getDefaultToolkit().createImage(FileUtils.readFileBytes(inputStream));
+			if (img == null)
+				return null;
+			
+			// wait for the image to load
+			int iter = 20;
+			while((img.getWidth(null) == -1) && (iter-- > 0))
+				Thread.sleep(100);
+			
+			// copy the image into a bufferedimage
+			bi = ImageUtil.createCompatibleImage(img.getWidth(null), img.getHeight(null), Transparency.OPAQUE);
+			Graphics g = bi.createGraphics();
+			g.drawImage(img, 0, 0, null);
+			g.dispose();
+		} catch (OutOfMemoryError e) {
 			return null;
-
-		return new AwtImage(((sun.awt.image.BufferedImagePeer) img).getSubimage(0, 0, img.getWidth(null), img.getHeight(null)));
+		} catch (Throwable t) {
+			getLogger().error("Loading image ", t);
+			return null;
+		}
+		return new AwtImage(bi);
 	}
 
 	public void fileSelected(String selectionType, File selectedFile)
@@ -476,6 +507,12 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		content = new KPanel(new BorderLayout());
 		root.add(content, BorderLayout.CENTER);
+	}
+	
+	private void initTextOptions() {
+		KTextOptionPane textOptions = new KTextOptionPane();
+		textOptions.addOrientationMenu(new KTextOptionOrientationMenu());
+		ctx.setTextOptionPane(textOptions);
 	}
 
 	private KMenu createMenu() {
@@ -580,9 +617,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 				startGame(new FileInputStream(selectedFile), null);
 
 		} catch (Throwable t) {
-			getLogger().error("Failed to load game", t);
+			getLogger().error("Failed to load game " + gameName, t);
 			try {
-				KOptionPane.showConfirmDialog(root, "Failed to start game " + t.getMessage(), "Error");
+				KOptionPane.showMessageDialog(root, "Failed to load game " + gameName, "Error", null);
 			} catch (Throwable t2) {
 			}
 		}
@@ -590,8 +627,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private void startGame(InputStream storyStream, InputStream blorbStream) throws IOException, InvalidStoryException
 	{
-		gameComponent.init(content.getWidth(), content.getHeight());
-
 		screenModel = new BufferedScreenModel();
 		screenModel.addStatusLineListener(this);
 		screenModel.addScreenModelListener(this.gameComponent);
@@ -605,10 +640,13 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		initStruct.screenModel = screenModel;
 		//	    initStruct.soundEffectFactory = ?;
 		initStruct.statusLine = this;
-
+		
 		executionControl = new ExecutionControl(initStruct);
 		screenModel.init(executionControl.getMachine(), executionControl.getZsciiEncoding());
 		executionControl.setDefaultColors(DEFAULT_BACKGROUND, DEFAULT_FOREGROUND);
+		
+		gameComponent.init(content.getWidth(), content.getHeight());
+
 		screenModel.setNumCharsPerRow(gameComponent.getTopCols());
 		executionControl.resizeScreen(gameComponent.getTopRows(), gameComponent.getTopCols());
 		gameComponent.setUserInputStyle(screenModel.getBottomAnnotation());
@@ -634,7 +672,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 				switch(executionControl.callInterrupt(runState.getRoutine())) {
 				case Instruction.TRUE:
-					irqTask.cancel();
+//					irqTask.cancel();
 					getLogger().error("TIMER TRUE");
 
 					// FIXME: press enter key
@@ -660,7 +698,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 			while(!vmThreadCancelled) {
 				synchronized (gameExecMonitor) {
 					try {
-						gameExecMonitor.wait();
+						try {
+							gameExecMonitor.wait();
+						} catch (InterruptedException ex) {}
 						if (vmThreadCancelled)
 							break;
 
