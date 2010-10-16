@@ -38,6 +38,7 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 	private int intercharacterSpaceBuffer = 0;
 
 	private TextAnnotation userInputTa;
+	private boolean symbolPressed = false;
 
 	private KifKindlet kindlet;
 
@@ -371,19 +372,26 @@ public class InfocomBottomPanel extends KTextArea implements TextListener, Compo
 	public void keyPressed(KeyEvent e) {
 		
 		switch(e.getKeyCode()) {
+		case KindleKeyCodes.VK_SYMBOL:
+			symbolPressed = !symbolPressed;
+			break;
 		case KindleKeyCodes.VK_FIVE_WAY_UP:
-			if (commandHistoryPos > 0) {
-				commandHistoryPos--;
-				setText((String) commandHistory.get(commandHistoryPos));
+			if (!symbolPressed) {
+				if (commandHistoryPos > 0) {
+					commandHistoryPos--;
+					setText((String) commandHistory.get(commandHistoryPos));
+				}
+				e.consume();
 			}
-			e.consume();
 			break;
 		case KindleKeyCodes.VK_FIVE_WAY_DOWN:
-			if (commandHistoryPos < (commandHistory.size() - 1)) {
-				commandHistoryPos++;
-				setText((String) commandHistory.get(commandHistoryPos));
+			if (!symbolPressed) {
+				if (commandHistoryPos < (commandHistory.size() - 1)) {
+					commandHistoryPos++;
+					setText((String) commandHistory.get(commandHistoryPos));
+				}
+				e.consume();
 			}
-			e.consume();
 			break;
 		}
 	}
