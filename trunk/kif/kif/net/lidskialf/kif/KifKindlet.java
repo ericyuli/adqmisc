@@ -142,21 +142,54 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 
 	public Color getAWTForegroundColor(TextAnnotation ta) {
-		Color c;
-		if (ta.isReverseVideo())
-			c = getAWTColor(ta.getBackground(), getDefaultBackground());
-		else
-			c = getAWTColor(ta.getForeground(), getDefaultForeground());
-
-		// Apparently this is the "frotz" trick, which sets the foreground colour slightly brighter; games such as
-		// "Varicella" need it
-		return c.brighter();
+		int colorId = 0;
+		if (!ta.isReverseVideo()) {
+			colorId = ta.getForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = screenModel.getForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId =  executionControl.getDefaultForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = DEFAULT_FOREGROUND;
+		} else {
+			colorId = ta.getBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = screenModel.getBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId =  executionControl.getDefaultBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = DEFAULT_BACKGROUND;			
+		}
+		
+		Color fgColor = getAWTColor(colorId, ScreenModel.COLOR_BLACK);
+		Color bgColor = getAWTBackgroundColor(ta);
+		if ((bgColor.getRGB() & 0xffffff) == (fgColor.getRGB() & 0xffffff))
+			fgColor = Color.DARK_GRAY;
+		
+		return fgColor;
 	}
 
 	public Color getAWTBackgroundColor(TextAnnotation ta) {
-		if (ta.isReverseVideo())
-			return getAWTColor(ta.getForeground(), getDefaultForeground());
-		return getAWTColor(ta.getBackground(), getDefaultBackground());
+		int colorId = 0;
+		if (!ta.isReverseVideo()) {
+			colorId = ta.getBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = screenModel.getBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId =  executionControl.getDefaultBackground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = DEFAULT_BACKGROUND;			
+		} else {
+			colorId = ta.getForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = screenModel.getForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId =  executionControl.getDefaultForeground();
+			if (colorId == ScreenModel.COLOR_DEFAULT)
+				colorId = DEFAULT_FOREGROUND;
+		}
+		
+		return getAWTColor(colorId, ScreenModel.COLOR_BLACK);
 	}
 
 	public Color getAWTColor(int colour, int defaultColour) {
@@ -205,14 +238,18 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	public int getDefaultBackground() {
 		int c = DEFAULT_BACKGROUND;
-		if (executionControl != null)
+		if (screenModel != null)
+			c = screenModel.getBackground();
+		else if (executionControl != null)
 			c = executionControl.getDefaultBackground();
 		return c;
 	}
 
 	public int getDefaultForeground() {
 		int c = DEFAULT_FOREGROUND;
-		if (executionControl != null)
+		if (screenModel != null)
+			c = screenModel.getForeground();
+		else if (executionControl != null)
 			c = executionControl.getDefaultForeground();
 		return c;
 	}
@@ -423,8 +460,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 
 
-
-
 	private InfocomGamePanel createGameDisplay() {
 		return new InfocomGamePanel(this);
 	}
@@ -499,7 +534,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					return false;
 
 				String ext = filename.substring(dotPos+1).toLowerCase();
-				if ((ext.charAt(0) != 'z') && (!ext.equals("zblorb")))
+				if ((ext.charAt(0) != 'z') && (!ext.equals("zblorb")) && (!ext.equals("blb")))
 					return false;
 
 				return true;
@@ -530,6 +565,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	private void loadGame()
 	{
 		String chosenFilename = selectedFile.getName();
+		String chosenFilenameLower = selectedFile.getName().toLowerCase();
 		this.gameName = chosenFilename.substring(0, chosenFilename.lastIndexOf('.'));
 
 		noGameLoadedComponent = null;
@@ -538,7 +574,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		inputBuffer.setLength(0);
 
 		try {
-			if (chosenFilename.endsWith(".zblorb"))
+			if (chosenFilenameLower.endsWith(".zblorb") || chosenFilenameLower.endsWith(".blb"))
 				startGame(null, new FileInputStream(selectedFile));
 			else
 				startGame(new FileInputStream(selectedFile), null);
@@ -586,21 +622,27 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		public void run() {
 			synchronized (gameExecMonitor) {
+				getLogger().error("TIMER");
+
 				// FIXME: get current input
 				String userInput = "";
 				if (userInput != null)
 					executionControl.setTextToInputBuffer(userInput);
-	
+
 				// output is supposed to be shown in the interrupt, so disable buffering temporarily
 				screenModel.setBufferMode(false);
 
 				switch(executionControl.callInterrupt(runState.getRoutine())) {
 				case Instruction.TRUE:
-					irqTimer.cancel();
+					irqTask.cancel();
+					getLogger().error("TIMER TRUE");
+
 					// FIXME: press enter key
 					break;
 	
 				case Instruction.FALSE:
+					getLogger().error("TIMER FALSE");
+
 					// FIXME: what to do here?
 					break;				
 				}
@@ -622,15 +664,18 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 						if (vmThreadCancelled)
 							break;
 
-						irqTimer.cancel();
+						irqTask.cancel();
 
 						if (input != null)
 							runState = executionControl.resumeWithInput(input);
 						else
 							runState = executionControl.run();
 
-//						if (runState.getRoutine() > 0)
-//							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
+						if (runState.getRoutine() > 0) {
+							irqTask = new IrqTimerTask();
+							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
+						}
+
 						gameComponent.updateCursor(runState.isWaitingForInput());
 						gameComponent.repaintDirty();
 					} catch (Throwable t) {
