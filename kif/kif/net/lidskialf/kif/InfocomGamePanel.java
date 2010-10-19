@@ -25,7 +25,9 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 	public InfocomGamePanel(KifKindlet kindlet) {
 		this.kindlet = kindlet;
 
-		setLayout(null);
+		// Originally I just set this to null, which is normal for "no layout".
+		// However, the Kindle DX then has redraw problems so I created a NullLayout which does nothing.
+		setLayout(new NullLayout());
 
 		this.topPanel = new InfocomTopPanel(kindlet);
 		add(this.topPanel);
