@@ -714,10 +714,11 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 						irqTask.cancel();
 
+						executionControl.resizeScreen(gameComponent.getTopRows(), gameComponent.getTopCols());
 						if (input != null)
 							runState = executionControl.resumeWithInput(input);
 						else
-							runState = executionControl.run();
+							runState = executionControl.run();	
 
 						if (runState.getRoutine() > 0) {
 							getLogger().error("TIMEOUT " + runState.getTime());
