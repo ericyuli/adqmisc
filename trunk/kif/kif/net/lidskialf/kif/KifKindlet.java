@@ -521,6 +521,11 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		KMenuItem menuItem = new KMenuItem("Open game");
 		menuItem.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
+				selectedFile = null;
+				synchronized (userActionMonitor) {
+					userActionMonitor.notifyAll();
+				}
+
 				showGameSelector();
 			}			
 		});
@@ -571,7 +576,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					return false;
 
 				String ext = filename.substring(dotPos+1).toLowerCase();
-				if ((ext.charAt(0) != 'z') && (!ext.equals("zblorb")) && (!ext.equals("blb")))
+				if ((ext.charAt(0) != 'z') && (!ext.equals("zblorb")) && (!ext.equals("zlb")))
 					return false;
 
 				return true;
@@ -582,7 +587,8 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 	private void showSelector(Container container, String title) {
 		content.removeAll();
 		content.add(container, BorderLayout.CENTER);
-		container.getComponent(0).requestFocus();
+		if (container.getComponentCount() > 0)
+			container.getComponent(0).requestFocus();
 		ctx.setSubTitle(title);
 	}
 
@@ -611,7 +617,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 		inputBuffer.setLength(0);
 
 		try {
-			if (chosenFilenameLower.endsWith(".zblorb") || chosenFilenameLower.endsWith(".blb"))
+			if (chosenFilenameLower.endsWith(".zblorb") || chosenFilenameLower.endsWith(".zlb"))
 				startGame(null, new FileInputStream(selectedFile));
 			else
 				startGame(new FileInputStream(selectedFile), null);
@@ -627,6 +633,8 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 	private void startGame(InputStream storyStream, InputStream blorbStream) throws IOException, InvalidStoryException
 	{
+		irqTask.cancel();
+
 		screenModel = new BufferedScreenModel();
 		screenModel.addStatusLineListener(this);
 		screenModel.addScreenModelListener(this.gameComponent);
@@ -663,7 +671,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 				getLogger().error("TIMER");
 
 				// FIXME: get current input
-				String userInput = "";
+				String userInput = null;
 				if (userInput != null)
 					executionControl.setTextToInputBuffer(userInput);
 
@@ -700,7 +708,7 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 					try {
 						try {
 							gameExecMonitor.wait();
-						} catch (InterruptedException ex) {}
+						} catch (InterruptedException ex) {} // Kindle DX needs this as it seems to cause an InterruptedException when the thread is woken.
 						if (vmThreadCancelled)
 							break;
 
@@ -712,6 +720,8 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 							runState = executionControl.run();
 
 						if (runState.getRoutine() > 0) {
+							getLogger().error("TIMEOUT " + runState.getTime());
+
 							irqTask = new IrqTimerTask();
 							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
 						}
