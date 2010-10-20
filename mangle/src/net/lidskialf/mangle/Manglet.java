@@ -176,7 +176,6 @@ public class Manglet implements Kindlet {
 				case KindleKeyCodes.VK_RIGHT_HAND_SIDE_TURN_PAGE: {
 					if (e.getID() == KeyEvent.KEY_RELEASED) {
 						int tmp = nextImagePos(curMangaPos, true);
-						getLogger().error("FORW " + (tmp >> 16) + " " + (tmp & 0xffff));
 						if (tmp != -1) {
 							curMangaPos = tmp;
 							prevImage = curImage;
@@ -193,7 +192,6 @@ public class Manglet implements Kindlet {
 
 				case KindleKeyCodes.VK_TURN_PAGE_BACK: {
 					int tmp = prevImagePos(curMangaPos, true);
-					getLogger().error("BACK " + (tmp >> 16) + " " + (tmp & 0xffff));
 					if (tmp != -1) {
 						curMangaPos = tmp;
 						nextImage = curImage;
