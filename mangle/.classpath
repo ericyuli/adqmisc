@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/basis.jar"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/Kindlet-1.1.jar"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/log4j-1.2.15.jar"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/xercesImpl.jar"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/xml-apis.jar"/>
+	<classpathentry kind="lib" path="/home/adq/dev/kindlet-sdk/jsr217/Optimized_nosym/lib/btclasses.zip"/>
+	<classpathentry kind="src" path="kwt"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
