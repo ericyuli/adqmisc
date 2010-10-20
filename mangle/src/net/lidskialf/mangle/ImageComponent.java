@@ -49,14 +49,12 @@ public class ImageComponent extends KComponent implements ImageObserver {
 			return false;
 
 		if ((infoflags & ImageObserver.ALLBITS) != 0) {
-			manglet.getLogger().error("ALLBITS");
 			imgComplete = true;
 			manglet.setBusyIndicator(false);
 			repaint();
 			return false;
 		}
 
-		manglet.getLogger().error("XXX");
 		manglet.setBusyIndicator(true);
 		return true;
 	}
