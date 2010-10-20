@@ -1,0 +1,10 @@
+#!/bin/sh
+
+KEYSTORE=/home/adq/data/kindle.keystore
+JAR=mangle.azw2
+MANIFEST=mangle.manifest
+
+jar cfm $JAR $MANIFEST -C bin .
+jarsigner -keystore $KEYSTORE -storepass password $JAR dkadq
+jarsigner -keystore $KEYSTORE -storepass password $JAR diadq
+jarsigner -keystore $KEYSTORE -storepass password $JAR dnadq

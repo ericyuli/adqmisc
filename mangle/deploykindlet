@@ -1,0 +1,4 @@
+#!/bin/sh
+
+./makekindlet
+scp mangle.azw2 root@kindle-adq:/mnt/us/documents
