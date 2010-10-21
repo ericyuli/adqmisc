@@ -55,7 +55,13 @@ public class ImageComponent extends KComponent implements ImageObserver {
 			return false;
 		}
 
-		manglet.setBusyIndicator(true);
+		if ((infoflags & ImageObserver.ERROR) != 0) {
+			manglet.setBusyIndicator(false);
+			repaint();
+			manglet.getLogger().error("Image loading error");
+			return false;
+		}
+
 		return true;
 	}
 }

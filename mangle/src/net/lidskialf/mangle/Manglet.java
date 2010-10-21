@@ -9,6 +9,8 @@ import java.awt.KeyboardFocusManager;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentEvent;
+import java.awt.event.ComponentListener;
 import java.awt.event.KeyEvent;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -38,11 +40,13 @@ import com.amazon.kindle.kindlet.ui.KMenu;
 import com.amazon.kindle.kindlet.ui.KMenuItem;
 import com.amazon.kindle.kindlet.ui.KTextOptionOrientationMenu;
 import com.amazon.kindle.kindlet.ui.KTextOptionPane;
+import com.amazon.kindle.kindlet.util.Timer;
+import com.amazon.kindle.kindlet.util.TimerTask;
 
-public class Manglet implements Kindlet {
+public class Manglet implements Kindlet, ComponentListener {
 	private Container root;
 	
-	private Component nothingLoadedComponent;
+	private Component aboutComponent;
 	private ImageComponent mainComponent;
 	private static Logger logger;
 
@@ -60,6 +64,8 @@ public class Manglet implements Kindlet {
 	private int curMangaPos = 0;
 	private Image curImage = null;
 	private Image nextImage = null;
+	
+	private boolean isFirstImage = true;
 
 
 	public synchronized Logger getLogger() {
@@ -78,9 +84,10 @@ public class Manglet implements Kindlet {
 	public void create(KindletContext context) {
 		this.ctx = context;
 		this.root = ctx.getRootContainer();
-		this.nothingLoadedComponent = createNothingLoaded();
+		this.aboutComponent = createAboutComponent();
 		this.mainComponent = new ImageComponent(this);
-
+		this.root.addComponentListener(this);
+		
 		initTextOptions();
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
@@ -107,8 +114,12 @@ public class Manglet implements Kindlet {
 	public void stop() {
 	}
 	
-	private Component createNothingLoaded() {
-		KLabelMultiline label = new KLabelMultiline("Mangle - a better manga reader for the Kindle\nPlease press Menu to open a manga");
+	private Component createAboutComponent() {
+		KLabelMultiline label = new KLabelMultiline("Mangle - a better manga reader for the Kindle!\n" +
+													"(c) 2010 Andrew de Quincey\n\n" +
+													"Press Menu to open a manga.\n" +
+													"Use the page navigation keys to change page.\n" +
+													"Use SHIFT+page navigation keys to change chapter.\n");
 		return label;
 	}
 	
@@ -123,6 +134,14 @@ public class Manglet implements Kindlet {
 		});
 		menu.add(menuItem);
 
+		menuItem = new KMenuItem("About");
+		menuItem.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				showPanel(aboutComponent, "About mangle");
+			}			
+		});
+		menu.add(menuItem);
+
 		return menu;
 	}
 
@@ -132,21 +151,25 @@ public class Manglet implements Kindlet {
 		ctx.setTextOptionPane(textOptions);
 	}
 
-	private void showSelector(Container container, String title) {
+	private void showPanel(Component panel, String title) {
 		root.removeAll();
-		root.add(container, BorderLayout.CENTER);
-		if (container.getComponentCount() > 0)
-			container.getComponent(0).requestFocus();
+		root.add(panel, BorderLayout.CENTER);
+		if (panel instanceof Container) {
+			Container container = (Container) panel;
+			if (container.getComponentCount() > 0)
+				container.getComponent(0).requestFocus();
+		}
 		ctx.setSubTitle(title);
 	}
 
 	private void showMainComponent() {
 		root.removeAll();
 
-		if (nothingLoadedComponent != null) {
-			root.add(nothingLoadedComponent);
+		if (curImage == null) {
+			root.add(aboutComponent);
 		} else {
 			root.add(mainComponent);
+			root.repaint();
 		}
 
 		ctx.setSubTitle(curSubTitle);
@@ -157,6 +180,9 @@ public class Manglet implements Kindlet {
 		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
 
 			public boolean dispatchKeyEvent(KeyEvent e) {
+				if (root.getComponentCount() == 0)
+					return false;
+
 				Component displayed = root.getComponent(0);
 				
 				if (e.isConsumed())
@@ -165,7 +191,7 @@ public class Manglet implements Kindlet {
 				switch(e.getKeyCode()) {
 				case KindleKeyCodes.VK_BACK:
 					// if we're not on the main screen when we get a "BACK", trap it and return to the main game screen
-					if ((displayed != mainComponent) && (displayed != nothingLoadedComponent)) {
+					if ((displayed != mainComponent) || ((curImage == null) && (displayed != aboutComponent))) {
 						showMainComponent();
 						e.consume();
 						return true;
@@ -175,15 +201,32 @@ public class Manglet implements Kindlet {
 				case KindleKeyCodes.VK_LEFT_HAND_SIDE_TURN_PAGE:
 				case KindleKeyCodes.VK_RIGHT_HAND_SIDE_TURN_PAGE: {
 					if (e.getID() == KeyEvent.KEY_RELEASED) {
-						int tmp = nextImagePos(curMangaPos, true);
-						if (tmp != -1) {
-							curMangaPos = tmp;
-							prevImage = curImage;
-							curImage = nextImage;
-							
-							displayImage(curImage);
-							nextImage = loadImage(nextImagePos(curMangaPos, false));
+						
+						int tmp = -1;
+						if ((e.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) == 0) {
+							tmp = nextImagePos(curMangaPos, true);
+							if (tmp != -1) {
+								curMangaPos = tmp;
+								prevImage = curImage;
+								curImage = nextImage;
+								nextImage = null;
+								
+								displayImage(curImage);
+								loadMissingImages();
+							}
+						} else {
+							tmp = nextMangaPos(curMangaPos, true);
+							if (tmp != -1) {
+								curMangaPos = tmp;
+								prevImage = null;
+								curImage = null;
+								nextImage = null;
+								
+								loadMissingImages();
+								displayImage(curImage);
+							}
 						}
+						
 						e.consume();
 						return true;
 					}
@@ -191,18 +234,42 @@ public class Manglet implements Kindlet {
 				}
 
 				case KindleKeyCodes.VK_TURN_PAGE_BACK: {
-					int tmp = prevImagePos(curMangaPos, true);
-					if (tmp != -1) {
-						curMangaPos = tmp;
-						nextImage = curImage;
-						curImage = prevImage;
+					if (e.getID() == KeyEvent.KEY_RELEASED) {
 						
-						displayImage(curImage);
-						prevImage = loadImage(prevImagePos(curMangaPos, false));
+						int tmp = -1;
+						if ((e.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) == 0) {
+							tmp = prevImagePos(curMangaPos, true);
+							if (tmp != -1) {
+								curMangaPos = tmp;
+								nextImage = curImage;
+								curImage = prevImage;
+								prevImage = null;
+								
+								displayImage(curImage);
+								loadMissingImages();
+							}
+						} else {
+							tmp = prevMangaPos(curMangaPos, true);
+							if (tmp != -1) {
+								curMangaPos = tmp;
+								prevImage = null;
+								curImage = null;
+								nextImage = null;
+								
+								loadMissingImages();
+								displayImage(curImage);
+							}
+						}
+
+						e.consume();
+						return true;
 					}
-					e.consume();
-					return true;
+					break;
 				}
+				}
+				
+				if (e.getKeyChar() == 'a') {
+					setBusyIndicator(true);
 				}
 
 				return false;
@@ -211,7 +278,7 @@ public class Manglet implements Kindlet {
 	}
 
 	private void showMangaSelector() {
-		showSelector(new LoadMangaPanel(this, ctx.getHomeDirectory(), new FilenameFilter() {
+		showPanel(new LoadMangaPanel(this, ctx.getHomeDirectory(), new FilenameFilter() {
 			public boolean accept(File dir, String filename) {
 				File cur = new File(dir, filename);
 				if (!cur.isDirectory())
@@ -238,17 +305,29 @@ public class Manglet implements Kindlet {
 	}
 	
 	
-	private void displayImage(Image img)
+	private void displayImage(final Image img)
 	{
 		if (img == null) {
-			// FIXME: say that its invalid
 			return;
 		}
 		
-		nothingLoadedComponent = null;
 		mainComponent.setImage(img);
 		showMainComponent();
 		updateSubTitle();
+		
+		// yuk, this nasty hack is to get round a platform bug on the KDX where it zaps the contents of the title bar
+		// shortly AFTER the kindlet is initialised. If you've already set it, you lose your changes!
+		if (isFirstImage) {
+			Timer t = new Timer();
+			t.schedule(new TimerTask() {				
+				public void run() {
+					setBusyIndicator(false);
+					mainComponent.setImage(img);
+					updateSubTitle();
+				}
+			}, 600);
+			isFirstImage = false;
+		}
 	}
 	
 	private void updateSubTitle() 
@@ -256,14 +335,19 @@ public class Manglet implements Kindlet {
 		int cbz = (curMangaPos >> 16) & 0xffff;
 		int img = curMangaPos & 0xffff;
 		
-		curSubTitle = "CH " + (cbz+1) + "/" + cbzs.length + 
-					  " PG " + (img+1) + "/" + curCbzImageCount +
-					  " " + curSeriesName;
-
-		ctx.setSubTitle(curSubTitle);
+		StringBuffer sb = new StringBuffer();
+		sb.append(img + 1);
+		sb.append("/");
+		sb.append(curCbzImageCount);
+		sb.append(" [");
+		sb.append(cbz + 1);
+		sb.append("/");
+		sb.append(cbzs.length);
+		sb.append("] ");
+		sb.append(curSeriesName);
+		
+		ctx.setSubTitle(sb.toString());
 	}
-	
-	
 	
 	
 	
@@ -454,13 +538,16 @@ public class Manglet implements Kindlet {
 		return (cbz << 16) | img;
 	}	
 	
-	private int nextMangaPos(int mangaPos) {		
+	private int nextMangaPos(int mangaPos, boolean updateImageCount) {		
 		int cbz = (mangaPos >> 16) & 0xffff;
 		int img = mangaPos & 0xffff;
 		
 		if (cbz < (cbzs.length - 1)) {
 			cbz++;
 			img = 0;
+
+			if (updateImageCount)
+				curCbzImageCount = getCbzImageCount(cbz);
 		} else {
 			return -1;
 		}
@@ -468,7 +555,7 @@ public class Manglet implements Kindlet {
 		return (cbz << 16) | img;
 	}
 	
-	private int prevMangaPos(int mangaPos) {
+	private int prevMangaPos(int mangaPos, boolean updateImageCount) {
 		int cbz = (mangaPos >> 16) & 0xffff;
 		int img = mangaPos & 0xffff;
 
@@ -477,6 +564,9 @@ public class Manglet implements Kindlet {
 		} else if (cbz > 0) {
 			img = 0;
 			cbz--;
+
+			if (updateImageCount)
+				curCbzImageCount = getCbzImageCount(cbz);
 		} else {
 			return -1;
 		}
@@ -582,11 +672,8 @@ public class Manglet implements Kindlet {
 					curCbzImageCount = getCbzImageCount(cbz);
 					int img = findCbzFileIdx(cbz, reader.readLine().trim());
 					if (img >= 0) {
-						curMangaPos = (cbz << 16) | img;
-						
-						prevImage = loadImage(prevImagePos(curMangaPos, false));
-						curImage = loadImage(curMangaPos);
-						nextImage = loadImage(nextImagePos(curMangaPos, false));
+						curMangaPos = (cbz << 16) | img;						
+						loadMissingImages();
 						return;
 					}
 				}
@@ -603,8 +690,16 @@ public class Manglet implements Kindlet {
 		// just use the first image
 		curMangaPos = 0;
 		curCbzImageCount = getCbzImageCount(0);
-		curImage = loadImage(curMangaPos);
-		nextImage = loadImage(nextImagePos(curMangaPos, false));
+		loadMissingImages();
+	}
+	
+	private void loadMissingImages() {
+		if (curImage == null)
+			curImage = loadImage(curMangaPos);
+		if (prevImage == null)
+			prevImage = loadImage(prevImagePos(curMangaPos, false));
+		if (nextImage == null)
+			nextImage = loadImage(nextImagePos(curMangaPos, false));
 	}
 
 	private Image loadImage(int mangaPos) {
@@ -697,5 +792,23 @@ public class Manglet implements Kindlet {
 		}
 
 		return result;
+	}
+
+
+	public void componentHidden(ComponentEvent arg0) {
+	}
+
+	public void componentMoved(ComponentEvent arg0) {
+	}
+
+	public void componentResized(ComponentEvent arg0) {
+		prevImage = null;
+		curImage = null;
+		nextImage = null;
+		loadMissingImages();
+		displayImage(curImage);
+	}
+
+	public void componentShown(ComponentEvent arg0) {
 	}
 }
