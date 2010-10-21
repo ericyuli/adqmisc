@@ -311,7 +311,7 @@ public class Manglet implements Kindlet, ComponentListener {
 		showMainComponent();
 		updateSubTitle();
 		
-		// yuk, this nasty hack is to get round a platform bug on the KDX where it zaps the contents of the title bar
+		// yuk, this nasty hack is to get round a platform bug on the K3 where it zaps the contents of the title bar
 		// shortly AFTER the kindlet is initialised. If you've already set it, you lose your changes!
 		if (isFirstImage) {
 			Timer t = new Timer();
