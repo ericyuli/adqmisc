@@ -267,10 +267,6 @@ public class Manglet implements Kindlet, ComponentListener {
 					break;
 				}
 				}
-				
-				if (e.getKeyChar() == 'a') {
-					setBusyIndicator(true);
-				}
 
 				return false;
 			}
