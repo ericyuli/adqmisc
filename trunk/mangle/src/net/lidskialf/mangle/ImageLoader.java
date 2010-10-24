@@ -33,49 +33,43 @@ public class ImageLoader implements ImageObserver {
 	}
 	
 	public void abort() {
-		synchronized (this) {
-			aborted = true;
-			
-			if (sourceImage != null)
-				sourceImage.flush();
-			sourceImage = null;
+		aborted = true;
+		
+		if (sourceImage != null)
+			sourceImage.flush();
 
-			if (displayImage != null)
-				displayImage.flush();
-			displayImage = null;
-		}
+		if (displayImage != null)
+			displayImage.flush();
 	}
 	
 	public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
-		synchronized (this) {
-			if (aborted)
+		if (aborted)
+			return false;
+
+		if (sourceImage != null) {
+			if ((infoflags & ImageObserver.ALLBITS) != 0) {
+				int imgWidth = img.getWidth(null);
+				int imgHeight = img.getHeight(null);
+				
+				if (imgHeight > imgWidth)
+					displayImage = sourceImage.getScaledInstance(-1, destHeight, Image.SCALE_AREA_AVERAGING);
+				else
+					displayImage = sourceImage.getScaledInstance(destWidth, -1, Image.SCALE_AREA_AVERAGING);
+
+				Toolkit.getDefaultToolkit().prepareImage(displayImage, -1, -1, this);
+				sourceImage = null;
 				return false;
-
-			if (sourceImage != null) {
-				if ((infoflags & ImageObserver.ALLBITS) != 0) {
-					int imgWidth = img.getWidth(null);
-					int imgHeight = img.getHeight(null);
-					
-					if (imgHeight > imgWidth)
-						displayImage = sourceImage.getScaledInstance(-1, destHeight, Image.SCALE_AREA_AVERAGING);
-					else
-						displayImage = sourceImage.getScaledInstance(destWidth, -1, Image.SCALE_AREA_AVERAGING);
-
-					Toolkit.getDefaultToolkit().prepareImage(displayImage, -1, -1, this);
-					sourceImage = null;
-					return false;
-				}
 			}
-
-			if (displayImage != null) {
-				if ((infoflags & ImageObserver.ALLBITS) != 0) {
-					displayImageComplete = true;
-					ic.imageReady();
-					return false;
-				}
-			}
-			
-			return true;
 		}
+
+		if (displayImage != null) {
+			if ((infoflags & ImageObserver.ALLBITS) != 0) {
+				displayImageComplete = true;
+				ic.imageReady();
+				return false;
+			}
+		}
+		
+		return true;
 	}
 }
