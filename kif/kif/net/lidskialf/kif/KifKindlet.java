@@ -122,8 +122,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener,
 		installGlobalKeyHandler();
 		ctx.setMenu(createMenu());
 		vmThread.start();
-
-		// FIXME: load persisted game state
 	}
 
 	public void start() {
@@ -133,9 +131,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener,
 	}
 
 	public void destroy() {
-
-		// FIXME: persist game state
-
 		try {
 			irqTimer.cancel();
 			vmThreadCancelled = true;
