@@ -2,66 +2,47 @@ package net.lidskialf.mangle;
 
 import java.awt.Graphics;
 import java.awt.Image;
-import java.awt.Toolkit;
-import java.awt.image.ImageObserver;
 
 import com.amazon.kindle.kindlet.ui.KComponent;
 
-public class ImageComponent extends KComponent implements ImageObserver {
+public class ImageComponent extends KComponent {
 
 	private static final long serialVersionUID = -1025892776027810043L;
 	
-	private Image img;
+	private ImageLoader scaledImg;
 	private Manglet manglet;
-	private boolean imgComplete = false;
 	
 	public ImageComponent(Manglet manglet) {
 		this.manglet = manglet;
 	}
 	
-	public void setImage(Image newImg) {
+	public void setImage(ImageLoader newImg) {
 		synchronized (this) {
-			this.img = newImg;
-			this.imgComplete = false;
+			this.scaledImg = newImg;
+			this.scaledImg.setImageComponent(this);
 	
-			if ((Toolkit.getDefaultToolkit().checkImage(img, -1, -1, this) & ImageObserver.ALLBITS) != 0) {
-				this.imgComplete = true;
+			if (this.scaledImg.getDisplayImage() != null) {
 				repaint();
 			} else {
-				manglet.setBusyIndicator(true);
+				manglet.setBusyIndicator(true);				
 			}
 		}
 	}
+	
+	public void imageReady() {
+		manglet.setBusyIndicator(false);
+		repaint();
+	}
 
-	public void paint(Graphics g) {
-		if (!imgComplete)
-			return;
-		
+	public void paint(Graphics g) {		
 		synchronized (this) {
+			Image img = scaledImg.getDisplayImage();
+			if (img == null)
+				return;
+			
 			int xoff = (getWidth() - img.getWidth(null)) / 2;
 			int yoff = (getHeight() - img.getHeight(null)) / 2;
 			g.drawImage(img, xoff, yoff, null);
 		}
-	}
-	
-	public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
-		if (img != this.img)
-			return false;
-
-		if ((infoflags & ImageObserver.ALLBITS) != 0) {
-			imgComplete = true;
-			manglet.setBusyIndicator(false);
-			repaint();
-			return false;
-		}
-
-		if ((infoflags & ImageObserver.ERROR) != 0) {
-			manglet.setBusyIndicator(false);
-			repaint();
-			manglet.getLogger().error("Image loading error");
-			return false;
-		}
-
-		return true;
 	}
 }
