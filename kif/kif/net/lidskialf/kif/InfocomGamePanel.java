@@ -90,9 +90,13 @@ public class InfocomGamePanel extends KPanel implements ScreenModelListener {
 		botDirty = true;
 	}
 	
-	public String getUserInput(boolean appendToVisible) {
+	public String getRawUserInput() {
+		return botPanel.getText();
+	}
+	
+	public void setRawUserInput(String s) {
+		botPanel.setText(s);
 		botDirty = true;
-		return botPanel.getUserInput(appendToVisible);
 	}
 
 	public void requestFocus() {
