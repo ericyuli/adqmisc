@@ -668,28 +668,23 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 
 		public void run() {
 			synchronized (gameExecMonitor) {
-				getLogger().error("TIMER");
 
-				// FIXME: get current input
-				String userInput = null;
-				if (userInput != null)
-					executionControl.setTextToInputBuffer(userInput);
+				// get input
+				String userInput = gameComponent.getRawUserInput();
+				executionControl.setTextToInputBuffer(userInput);
 
 				// output is supposed to be shown in the interrupt, so disable buffering temporarily
 				screenModel.setBufferMode(false);
-
 				switch(executionControl.callInterrupt(runState.getRoutine())) {
 				case Instruction.TRUE:
-//					irqTask.cancel();
-					getLogger().error("TIMER TRUE");
-
-					// FIXME: press enter key
+					irqTask.cancel();
+					input = "";
+					gameExecMonitor.notifyAll();
 					break;
 	
 				case Instruction.FALSE:
-					getLogger().error("TIMER FALSE");
-
-					// FIXME: what to do here?
+					int usedChars = userInput.length() - runState.getNumLeftOverChars();
+					gameComponent.setRawUserInput(gameComponent.getRawUserInput().substring(usedChars));
 					break;				
 				}
 
@@ -721,8 +716,6 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener, Nati
 							runState = executionControl.run();	
 
 						if (runState.getRoutine() > 0) {
-							getLogger().error("TIMEOUT " + runState.getTime());
-
 							irqTask = new IrqTimerTask();
 							irqTimer.scheduleAtFixedRate(irqTask, runState.getTime() * 100, runState.getTime() * 100);
 						}
