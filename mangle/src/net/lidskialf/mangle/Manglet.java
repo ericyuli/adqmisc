@@ -3,7 +3,6 @@ package net.lidskialf.mangle;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.Image;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.Toolkit;
@@ -60,10 +59,10 @@ public class Manglet implements Kindlet, ComponentListener {
 	private String[] cbzs = null;	
 	private int curCbzImageCount = 0;
 	
-	private Image prevImage = null;
+	private ImageLoader prevImage = null;
 	private int curMangaPos = 0;
-	private Image curImage = null;
-	private Image nextImage = null;
+	private ImageLoader curImage = null;
+	private ImageLoader nextImage = null;
 	
 	private boolean isFirstImage = true;
 
@@ -208,6 +207,9 @@ public class Manglet implements Kindlet, ComponentListener {
 							tmp = nextImagePos(curMangaPos, true);
 							if (tmp != -1) {
 								curMangaPos = tmp;
+
+								if (prevImage != null)
+									prevImage.abort();
 								prevImage = curImage;
 								curImage = nextImage;
 								nextImage = null;
@@ -219,6 +221,14 @@ public class Manglet implements Kindlet, ComponentListener {
 							tmp = nextMangaPos(curMangaPos, true);
 							if (tmp != -1) {
 								curMangaPos = tmp;
+
+								if (prevImage != null)
+									prevImage.abort();
+								if (curImage != null)
+									curImage.abort();
+								if (nextImage != null)
+									nextImage.abort();
+
 								prevImage = null;
 								curImage = null;
 								nextImage = null;
@@ -242,6 +252,9 @@ public class Manglet implements Kindlet, ComponentListener {
 							tmp = prevImagePos(curMangaPos, true);
 							if (tmp != -1) {
 								curMangaPos = tmp;
+
+								if (nextImage != null)
+									nextImage.abort();
 								nextImage = curImage;
 								curImage = prevImage;
 								prevImage = null;
@@ -253,6 +266,14 @@ public class Manglet implements Kindlet, ComponentListener {
 							tmp = prevMangaPos(curMangaPos, true);
 							if (tmp != -1) {
 								curMangaPos = tmp;
+
+								if (prevImage != null)
+									prevImage.abort();
+								if (curImage != null)
+									curImage.abort();
+								if (nextImage != null)
+									nextImage.abort();
+
 								prevImage = null;
 								curImage = null;
 								nextImage = null;
@@ -302,7 +323,7 @@ public class Manglet implements Kindlet, ComponentListener {
 	}
 	
 	
-	private void displayImage(final Image img)
+	private void displayImage(final ImageLoader img)
 	{
 		if (img == null) {
 			return;
@@ -699,7 +720,7 @@ public class Manglet implements Kindlet, ComponentListener {
 			nextImage = loadImage(nextImagePos(curMangaPos, false));
 	}
 
-	private Image loadImage(int mangaPos) {
+	private ImageLoader loadImage(int mangaPos) {
 		if (mangaPos == -1)
 			return null;
 
@@ -726,9 +747,7 @@ public class Manglet implements Kindlet, ComponentListener {
 			if (tmp == null)
 				return null;
 
-			Image newImg = Toolkit.getDefaultToolkit().createImage(tmp).getScaledInstance(-1, root.getHeight(), Image.SCALE_AREA_AVERAGING);
-			Toolkit.getDefaultToolkit().prepareImage(newImg, -1, -1, null);
-			return newImg;
+			return new ImageLoader(Toolkit.getDefaultToolkit().createImage(tmp), root.getWidth(), root.getHeight());
 		} catch (Throwable t) {
 			getLogger().error("Error accessing " + cbz + " " + img, t);
 			return null;
@@ -799,9 +818,17 @@ public class Manglet implements Kindlet, ComponentListener {
 	}
 
 	public void componentResized(ComponentEvent arg0) {
+		if (prevImage != null)
+			prevImage.abort();
+		if (curImage != null)
+			curImage.abort();
+		if (nextImage != null)
+			nextImage.abort();
+
 		prevImage = null;
 		curImage = null;
 		nextImage = null;
+
 		loadMissingImages();
 		displayImage(curImage);
 	}
