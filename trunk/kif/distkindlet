@@ -6,6 +6,7 @@ VERSION=0.4
 rm -fr dist
 mkdir -p dist/documents
 mkdir -p dist/developer/kif/work
+cp kif.license kwt.license zmpp.license dist
 cp kif.azw2 dist/documents/
 cp minizork.z3 dist/developer/kif/work
 cp curses.z5 dist/developer/kif/work
