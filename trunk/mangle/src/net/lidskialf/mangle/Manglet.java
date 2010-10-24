@@ -100,6 +100,13 @@ public class Manglet implements Kindlet, ComponentListener {
 	}
 
 	public void destroy() {
+		if (prevImage != null)
+			prevImage.abort();
+		if (curImage != null)
+			curImage.abort();
+		if (nextImage != null)
+			nextImage.abort();
+
 		if (curSeriesName == null)
 			return;
 		
