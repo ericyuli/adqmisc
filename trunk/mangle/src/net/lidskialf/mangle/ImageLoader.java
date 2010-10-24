@@ -35,9 +35,11 @@ public class ImageLoader implements ImageObserver {
 	public void abort() {
 		synchronized (this) {
 			aborted = true;
+			
 			if (sourceImage != null)
 				sourceImage.flush();
 			sourceImage = null;
+
 			if (displayImage != null)
 				displayImage.flush();
 			displayImage = null;
