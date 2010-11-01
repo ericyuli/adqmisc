@@ -122,8 +122,8 @@ public class Manglet implements Kindlet, ComponentListener {
 	
 	private Component createAboutComponent() {
 		KLabelMultiline label = new KLabelMultiline("Mangle - a better manga reader for the Kindle!\n" +
-													"(c) 2010 Andrew de Quincey\n\n" +
-													"Includes KWT, (c) 2010 Dan Fabulich (Apache licensed).\n\n" +
+													"(c) 2010 Andrew de Quincey, released under the Apache 2.0 license.\n\n" +
+													"Includes KWT, (c) 2010 Dan Fabulich (Apache 2.0 licensed).\n\n" +
 													"Press Menu to open a manga.\n" +
 													"Use the page navigation keys to change page.\n" +
 													"Use SHIFT+page navigation keys to change chapter.\n");
