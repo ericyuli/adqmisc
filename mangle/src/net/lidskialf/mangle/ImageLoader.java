@@ -65,7 +65,8 @@ public class ImageLoader implements ImageObserver {
 		if (displayImage != null) {
 			if ((infoflags & ImageObserver.ALLBITS) != 0) {
 				displayImageComplete = true;
-				ic.imageReady();
+				if (ic != null)
+					ic.imageReady();
 				return false;
 			}
 		}
