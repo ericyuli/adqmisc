@@ -527,7 +527,9 @@ public class KifKindlet implements Kindlet, StatusLine, StatusLineListener,
 	private Component createAboutComponent() {
 		KLabelMultiline label = new KLabelMultiline(
 				"Kif - an Infocom interpreter for the Kindle!\n"
-						+ "(c) 2010 Andrew de Quincey, released under the Apache 2.0 license.\n\n"
+						+ "(c) 2010 Andrew de Quincey, released under the Apache 2.0 license.\n"
+						+ "See http://adq.livejournal.com for updates.\n"
+						+ "See http://code.google.com/p/adqmisc/source/browse/#svn/trunk/kif for source.\n\n"
 						+ "Includes ZMPP, (c) 2005-2010, Wei-ju Wu, Box of Rats LLC, All rights reserved.\n"
 						+ "Includes KWT, (c) 2010 Dan Fabulich (Apache 2.0 licensed).\n\n"
 						+ "Press Menu to open a game.");
