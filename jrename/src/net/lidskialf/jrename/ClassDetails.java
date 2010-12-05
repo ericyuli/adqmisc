@@ -32,8 +32,8 @@ public class ClassDetails {
 		return cmd;
 	}
 	
-	public ClassMemberDetails AddMethod(String methodName, String returnDesc, String argsDesc) {
-		ClassMemberDetails cmd = new ClassMemberDetails(methodName, returnDesc, argsDesc);
+	public ClassMemberDetails AddMethod(String methodName, String desc) {
+		ClassMemberDetails cmd = new ClassMemberDetails(methodName, desc);
 		methods.add(cmd);
 		return cmd;
 	}
