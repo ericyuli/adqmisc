@@ -311,7 +311,7 @@ public class ClassProcessor {
 		if (classDetails == null)
 			throw new RuntimeException("Attempt to add field to nonexistant class: " + className);
 		
-		return classDetails.AddMethod(methodName, GetMethodReturnDesc(desc), GetMethodArgsDesc(desc));
+		return classDetails.AddMethod(methodName, desc);
 	}
 
 	
