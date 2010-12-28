@@ -349,11 +349,14 @@ public class ClassProcessor {
 		}
 		
 		for(String intf: cd.interfaces) {
-			String tmp = FixFieldName(classes.get(intf), fieldOldName);
-			if (tmp != null)
-				return tmp;
+			ClassDetails intf_cd = classes.get(intf);
+			if (intf_cd != null) {
+				String tmp = FixFieldName(classes.get(intf), fieldOldName);
+				if (tmp != null)
+					return tmp;
+			}
 		}
-		
+
 		return null;
 	}
 
