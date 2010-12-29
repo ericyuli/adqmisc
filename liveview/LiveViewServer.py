@@ -19,8 +19,17 @@ clientSocket, address = serverSocket.accept()
 clientSocket.send(LiveViewProtocol.EncodeCapsReq())
 deviceCaps = LiveViewProtocol.Decode(clientSocket.recv(1024))
 
-clientSocket.send(LiveViewProtocol.EncodeLEDReq(0, 0, 0x1f, 10, 1000))
-print LiveViewProtocol.Decode(clientSocket.recv(1024))
+#clientSocket.send(LiveViewProtocol.EncodeClearDisplayReq())
+#print LiveViewProtocol.Decode(clientSocket.recv(1024))
+
+#clientSocket.send(LiveViewProtocol.EncodeStandbyReq(2))
+#print LiveViewProtocol.Decode(clientSocket.recv(1024))
+
+#clientSocket.send(LiveViewProtocol.EncodeLEDReq(0, 0, 0x1f, 10, 1000))
+#print LiveViewProtocol.Decode(clientSocket.recv(1024))
+
+#clientSocket.send(LiveViewProtocol.EncodeVibrateReq(10, 1000))
+#print LiveViewProtocol.Decode(clientSocket.recv(1024))
 
 clientSocket.close()
 serverSocket.close()
