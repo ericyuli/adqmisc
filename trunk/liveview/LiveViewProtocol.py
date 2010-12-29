@@ -17,6 +17,8 @@ LV_MSG_LED_RESP 	= 41
 LV_MSG_VIBRATE_REQ 	= 42
 LV_MSG_VIBRATE_RESP 	= 43
 
+
+
 LV_RESULT_OK		= 0
 LV_RESULT_UNKNOWN	= 1
 LV_RESULT_OOM		= 2
@@ -43,7 +45,11 @@ def Decode(msg):
 	if messageId == LV_MSG_CAPS_RESP:
 		return DisplayCapabilities(payload)
 	elif messageId == LV_MSG_LED_RESP:
-		return Result(payload)
+		return Result(messageId, payload)
+	elif messageId == LV_MSG_VIBRATE_RESP:
+		return Result(messageId, payload)
+	elif messageId == LV_MSG_STANDBY_RESP:
+		return Result(messageId, payload)
 	else:
 		print >>sys.stderr, "Unknown message id %i", messageId
 
@@ -51,6 +57,7 @@ def EncodeCapsReq():
 	return EncodeLVMessage(LV_MSG_CAPS_REQ, struct.pack(">B5s", 5, "0.0.3"))
 
 def EncodeClearDisplayReq():
+	# FIXME: device does not respond!
 	return EncodeLVMessage(LV_MSG_CLEARDISPLAY_REQ, "")
 
 def EncodeStandbyReq(unknown):
@@ -75,7 +82,8 @@ class DisplayCapabilities:
 
 class Result:
 
-	def __init__(self, msg):
+	def __init__(self, messageId, msg):
+		self.messageId = messageId
 		(self.code, ) = struct.unpack(">B", msg)
 	
 	def __str__(self):
@@ -90,4 +98,5 @@ class Result:
 			s = "EXIT"
 		elif self.code == LV_RESULT_CANCEL:
 			s = "CANCEL"
-		return "<Result>\n%s (%i)" % (s, self.code)
+
+		return "<Result>\nMessageId: %i\nCode: %i (%s)" % (self.messageId, self.code, s)
