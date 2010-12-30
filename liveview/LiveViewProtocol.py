@@ -6,11 +6,14 @@ import sys
 MSG_GETCAPS		= 1
 MSG_GETCAPS_ACK 	= 2
 
+MSG_DISPLAYTEXT		= 3
+MSG_DISPLAYTEXT_ACK	= 4
+
 MSG_DEVICESTATUS	= 7
 MSG_DEVICESTATUS_ACK 	= 8
 
-			# 15 - Old time/date request unused in 0.0.5 protocol
-			# 16 - Old time/date response unused in 0.0.5 protocol
+MSG_DISPLAYBITMAP	= 19
+MSG_DISPLAYBITMAP_ACK	= 20
 
 MSG_CLEARDISPLAY  	= 21
 MSG_CLEARDISPLAY_ACK 	= 22
@@ -25,6 +28,9 @@ MSG_GETALERT		= 27
 
 MSG_NAVIGATION		= 29
 MSG_NAVIGATION_ACK	= 30
+
+MSG_SETSTATUSBAR	= 33
+MSG_SETSTATUSBAR_ACK	= 34
 
 MSG_GETMENUITEMS	= 35
 
@@ -42,8 +48,14 @@ MSG_SETVIBRATE_ACK 	= 43
 
 MSG_ACK			= 44
 
+MSG_SETSCREENMODE	= 64
+MSG_SETSCREENMODE_ACK	= 65
+
+MSG_GETSCREENMODE	= 66
+MSG_GETSCREENMODE_ACK	= 67
+
 DEVICESTATUS_OFF	= 0
-DEVICESTATUS_CLOCK	= 1
+DEVICESTATUS_ON		= 1
 DEVICESTATUS_MENU	= 2
 
 RESULT_OK		= 0
@@ -52,9 +64,9 @@ RESULT_OOM		= 2
 RESULT_EXIT		= 3
 RESULT_CANCEL		= 4
 
-NAVACTION_NORMAL	= 0
-NAVACTION_LONG		= 1
-NAVACTION_DOUBLE	= 2
+NAVACTION_PRESS		= 0
+NAVACTION_LONGPRESS	= 1
+NAVACTION_DOUBLEPRESS	= 2
 
 NAVTYPE_UP		= 0
 NAVTYPE_DOWN		= 1
@@ -62,6 +74,10 @@ NAVTYPE_LEFT		= 2
 NAVTYPE_RIGHT		= 3
 NAVTYPE_SELECT		= 4
 NAVTYPE_MENUSELECT	= 5
+
+BRIGHTNESS_OFF		= 48
+BRIGHTNESS_DIM		= 49
+BRIGHTNESS_MAX		= 50
 
 def DecodeLVMessage(msg):
 	(messageId, headerLen, payloadLen) = struct.unpack(">BBL", msg[0:6])
@@ -84,8 +100,20 @@ def Decode(msg):
 		return Result(messageId, payload)
 	elif messageId == MSG_DEVICESTATUS_ACK:
 		return Result(messageId, payload)
+	elif messageId == MSG_SETSCREENMODE_ACK:
+		return Result(messageId, payload)
+	elif messageId == MSG_CLEARDISPLAY_ACK:
+		return Result(messageId, payload)
+	elif messageId == MSG_SETSTATUSBAR_ACK:
+		return Result(messageId, payload)
+	elif messageId == MSG_DISPLAYTEXT_ACK:
+		return Result(messageId, payload)
+	elif messageId == MSG_DISPLAYBITMAP_ACK:
+		return Result(messageId, payload)
 	elif messageId == MSG_GETMENUITEMS:
 		return GetMenuItems(messageId, payload)
+	elif messageId == MSG_GETMENUITEM:
+		return GetMenuItem(messageId, payload)
 	elif messageId == MSG_GETTIME:
 		return GetTime(messageId, payload)
 	elif messageId == MSG_GETALERT:
@@ -94,6 +122,8 @@ def Decode(msg):
 		return DeviceStatus(messageId, payload)
 	elif messageId == MSG_NAVIGATION:
 		return Navigation(messageId, payload)
+	elif messageId == MSG_GETSCREENMODE_ACK:
+		return GetScreenMode(messageId, payload)
 	else:
 		print >>sys.stderr, "Unknown message id %i" % messageId
 		i = 0
@@ -119,50 +149,14 @@ def EncodeSetMenuSize(menuSize):
 def EncodeAck(ackMessageId):
 	return EncodeLVMessage(MSG_ACK, struct.pack(">B", ackMessageId))
 
-def EncodeSetSettings(flags, fontSize, selectedMenuItem):
-	# FIXME: dunno quite wtf this is all doing
-	# flags 01:
-	# flags 02:
-	# flags 04: vibrator on/off
-	# flags 08:
-	# flags 10:
-	# flags 20:
-	# flags 40:
-	# flags 80:
-	return EncodeLVMessage(MSG_SETSETTINGS, struct.pack(">BBB", flags, fontSize, selectedMenuItem))
+def EncodeGetMenuItemAck(isAlertItem, totalAlerts, unreadAlerts, alertIdx, menuItemId, itemDescription, itemBitmap):
+	# FIXME: alertIdx is unknown
+	payload = struct.pack(">BHHHBB", not isAlertItem, totalAlerts, unreadAlerts, alertIdx, menuItemId + 3, 0) # final 0 is for plaintext vs bitmapimage
+	payload += struct.pack(">H", 0) # unused timestamp string
+	payload += struct.pack(">H", 0) # unused header string
+	payload += struct.pack(">H", len(itemDescription)) + itemDescription
+	payload += itemBitmap
 
-def EncodeGetMenuItemAck(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, itemDescription, itemBitmap):
-	# FIXME: not quite sure of all this yet
-	# byte 00: bit 0: icon is a normal menu item
-
-	# byte 01: } total ??
-	# byte 02: }
-
-	# byte 03: } unread count
-	# byte 04: }
-
-	# byte 05: } index ???
-	# byte 06: }
-
-	# byte 07: itemId + 3 (why +3 I do not know)
-
-	# byte 08: ?? depends on whether menu item text is a text icon is a latin string (0 or 1). Setting it to 1 disables the menu item texts
-	
-	# byte 09: length of renderShowUi() string
-	# byte 0a:
-	# <message string?>
-
-	# byte 0b: length of relative time span string
-	# byte 0c:
-	# <relative time span string>
-
-	# byte 0d: string size hi
-	# byte 0e: string size lo-
-	# byte 0f: <menu item string>
-
-	# byte n: PNG data
-	
-	payload = struct.pack(">BHHHBBHHH", not isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId + 3, 0, 0, 0, len(itemDescription)) + itemDescription + itemBitmap
 	return EncodeLVMessage(MSG_GETMENUITEM_ACK, payload)
 
 def EncodeGetTimeAck(time, is24HourDisplay):
@@ -177,17 +171,101 @@ def EncodeDeviceStatusAck():
 def EncodeNavigationAck(result):
 	return EncodeLVMessage(MSG_NAVIGATION_ACK, struct.pack(">B", result))
 
+def EncodeDisplayBitmap(x, y, bitmap):
+	# Only works if you have sent SetMenuItems(0)
+	# Meaning of byte 2 is unknown, but /is/ important!
+	return EncodeLVMessage(MSG_DISPLAYBITMAP, struct.pack(">BBB", x, y, 1) + bitmap)
 
+def EncodeSetScreenMode(brightness, auto):
+	# Only works if you have sent SetMenuItems(0)
+	v = brightness << 1
+	if auto:
+		v |= 1
+	return EncodeLVMessage(MSG_SETSCREENMODE, struct.pack(">B", v))
 
-
-
-
-
+def EncodeGetScreenMode():
+	# Only works if you have sent SetMenuItems(0)
+	return EncodeLVMessage(MSG_GETSCREENMODE, "")
 
 def EncodeClearDisplay():
-	# FIXME: device does not respond!
+	# Only works if you have sent SetMenuItems(0)
 	return EncodeLVMessage(MSG_CLEARDISPLAY, "")
 
+
+
+
+
+def EncodeSetSettings(flags, fontSize, initialMenuItemId):
+	# FIXME: dunno quite wtf this is all doing
+	# flags 01:
+	# flags 02:
+	# flags 04: vibrator on/off
+	# flags 08:
+	# flags 10:
+	# flags 20:
+	# flags 40:
+	# flags 80:	
+	return EncodeLVMessage(MSG_SETSETTINGS, struct.pack(">BBB", flags, fontSize, initialMenuItemId))
+
+def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, itemDescription, itemBitmap):
+	# FIXME: not quite sure of all this yet
+	# byte 00: flag set to 1 if icon is a normal menu item
+
+	# byte 01: } total alerts
+	# byte 02: }
+
+	# byte 03: } unread alerts count
+	# byte 04: }
+
+	# byte 05: } alert index ???
+	# byte 06: }
+
+	# byte 07: itemId (for menu item, set to 0 for alert msg 28)
+
+	# byte 08: flag set to 0 if string data is plain text, or 1 if they're "Simple Image Format" images (if they require non iso-8859-1 characters)
+	
+	# byte: length of timestamp string
+	# byte:
+	# <timestamp string>
+
+	# byte: length of header string
+	# byte:
+	# <header string>
+
+	# byte : length of body string
+	# byte : 
+	# <body string>
+	
+	
+	
+	# message type 28 (get alert ack) has some extra fields here
+	# byte: ? unknown
+	# byte: ? part of PNG length?
+	# byte: ? part of PNG length?
+	# byte: } definitely length of following PNG.
+	# byte: }
+
+
+	# <PNG data for menu item>
+	
+	payload = struct.pack(">BHHHBB", not isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, 0)
+	payload += struct.pack(">H", 0)
+	payload += struct.pack(">H", 0)
+	payload += struct.pack(">H", len(itemDescription)) + itemDescription
+	payload += itemBitmap
+	
+	return payload
+
+def EncodeSetStatusBar(itemBitmap):
+	# FIXME: hmmmmmmm not entirely certain about this!
+	# FIXME: need the + 3? 
+	return EncodeLVMessage(MSG_SETSTATUSBAR, EncodeUIPayload(0, 0, 20, 0, 1, "", itemBitmap))
+
+def EncodeDisplayText(s):
+	# Only works if you have sent SetMenuItems(0)
+	# FIXME: seems to break completely!
+	# meaning of 0 byte is unknown...
+	return EncodeLVMessage(MSG_DISPLAYTEXT, struct.pack(">B", 0) + s)
 
 
 
@@ -229,6 +307,17 @@ class Result:
 
 		return "<Result>\nMessageId: %i\nCode: %i (%s)" % (self.messageId, self.code, s)
 
+class GetMenuItem:
+
+	def __init__(self, messageId, msg):
+		self.messageId = messageId
+		(self.menuItemId, ) = struct.unpack(">B", msg)
+		
+		# FIXME: subtract 3 from menu item id?
+
+	def __str__(self):
+		return "<GetMenuItem>\nMenuItemId: %i" % (self.menuItemId)
+
 class GetMenuItems:
 
 	def __init__(self, messageId, msg):
@@ -263,8 +352,8 @@ class DeviceStatus:
 		s = "UNKNOWN"
 		if self.deviceStatus == DEVICESTATUS_OFF:
 			s = "Off"
-		elif self.deviceStatus == DEVICESTATUS_CLOCK:
-			s = "Clock"
+		elif self.deviceStatus == DEVICESTATUS_ON:
+			s = "On"
 		elif self.deviceStatus == DEVICESTATUS_MENU:
 			s = "Menu"
 
@@ -275,6 +364,8 @@ class GetAlert:
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
 		(self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight) = struct.unpack(">BHBBBB", msg)
+		if self.maxLineBreakSize != 0 or self.fontSize != 0  or self.textImageWidth != 0  or self.textImageHeight != 0:
+			print >>sys.stderr, "GetAlert with non zero text values! %i %i %i %i" % (self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
 		
 	def __str__(self):
 		return "<GetAlert>\nMenuItemId %i\nTextLength %i\nMaxLineBreakSize %i\nFontSize %i\nTextImageWidth %i\nTextImageHeight %i" % (self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
@@ -295,22 +386,22 @@ class Navigation:
 			self.navAction = (navigation - 1) % 3
 			self.navType = int((navigation - 1) / 3)
 		else:
-			self.navAction = NAVACTION_NORMAL
+			self.navAction = NAVACTION_PRESS
 			self.navType = NAVTYPE_MENUSELECT
 
 	def __str__(self):
 		
 		sA = "UNKNOWN"
-		if self.navAction == NAVACTION_NORMAL:
-			sA = "Normal"
-		elif self.navAction == NAVACTION_DOUBLE:
-			sA = "Double"
-		elif self.navAction == NAVACTION_LONG:
-			sA = "Long"
+		if self.navAction == NAVACTION_PRESS:
+			sA = "Press"
+		elif self.navAction == NAVACTION_DOUBLEPRESS:
+			sA = "DoublePress"
+		elif self.navAction == NAVACTION_LONGPRESS:
+			sA = "LongPress"
 
 		sT = "UNKNOWN"
 		if self.navType == NAVTYPE_UP:
-			sT = "UP"
+			sT = "Up"
 		elif self.navType == NAVTYPE_DOWN:
 			sT = "Down"
 		elif self.navType == NAVTYPE_LEFT:
@@ -323,3 +414,14 @@ class Navigation:
 			sT = "MenuSelect"
 
 		return "<Navigation>\nAction %s\nType %s\nX %i\nY %i" % (sA, sT, self.x, self.y)
+
+class GetScreenMode:
+
+	def __init__(self, messageId, msg):
+		self.messageId = messageId
+		(raw, ) = struct.unpack(">B", msg)
+		self.auto = raw & 1
+		self.brightness = raw >> 1
+
+	def __str__(self):
+		return "<GetScreenMode>\nAuto: %i\nBrightness: %i" % (self.auto, self.brightness)
