@@ -3,6 +3,12 @@
 import bluetooth
 import LiveViewProtocol
 import sys
+import time
+
+testPngFd = open("test36.png")
+testPng = testPngFd.read()
+testPngFd.close()
+print len(testPng)
 
 serverSocket = bluetooth.BluetoothSocket( bluetooth.RFCOMM )
 serverSocket.bind(("",1))
@@ -16,24 +22,48 @@ clientSocket, address = serverSocket.accept()
 
 clientSocket.send(LiveViewProtocol.EncodeGetCaps())
 deviceCaps = LiveViewProtocol.Decode(clientSocket.recv(1024))
-clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.LV_MSG_GETCAPS))
+clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETCAPS_ACK))
 print deviceCaps
 
-clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(5))
-clientSocket.send(LiveViewProtocol.EncodeSetSettings(0, 12, 4))
+clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
 
 while True:
 	tmp = LiveViewProtocol.Decode(clientSocket.recv(1024))
 	if isinstance(tmp, LiveViewProtocol.GetMenuItems):
-		print tmp
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEMS))
+		
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(False, 10, 5, 4, 0, "Hi0", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(False, 5, 2, 2, 1, "Hi1", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(False, 5, 3, 3, 2, "Hi2", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(True, 5, 4, 4, 3, "Hi3", testPng))
+		
+		clientSocket.send(LiveViewProtocol.EncodeSetSettings(0, 12, 1))
+
 	elif isinstance(tmp, LiveViewProtocol.DisplayCapabilities):
-		print tmp
+		pass
 	elif isinstance(tmp, LiveViewProtocol.Result):
-		print tmp
+		pass
+	elif isinstance(tmp, LiveViewProtocol.GetTime):
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETTIME))
+		
+		clientSocket.send(LiveViewProtocol.EncodeGetTimeAck(time.time(), True))
+	elif isinstance(tmp, LiveViewProtocol.DeviceStatus):
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_DEVICESTATUS))
+		
+		clientSocket.send(LiveViewProtocol.EncodeDeviceStatusAck())
+
+	elif isinstance(tmp, LiveViewProtocol.GetAlert):
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETALERT))
+
+		# FIXME: do summat
+
+	elif isinstance(tmp, LiveViewProtocol.Navigation):
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_NAVIGATION))
+		
+		clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_CANCEL))
 	else:
 		print "UNKNOWN"
-		print tmp
+	print tmp
 
 clientSocket.close()
 serverSocket.close()
-
