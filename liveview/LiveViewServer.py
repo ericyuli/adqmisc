@@ -30,7 +30,7 @@ clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETCAPS_ACK))
 print deviceCaps
 
 clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
-clientSocket.send(LiveViewProtocol.EncodeSetSettings(0xff, 12, 0))
+clientSocket.send(LiveViewProtocol.EncodeSetMenuSettings(0xff, 12, 0))
 
 tmpxxx = "Hi0"
 
@@ -47,6 +47,7 @@ while True:
 	elif isinstance(tmp, LiveViewProtocol.GetMenuItem):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEM))
 		
+		print "---------------------------- GETMENUITEM RECEIVED ----------------------------------"
 		# FIXME: do something!
 
 	elif isinstance(tmp, LiveViewProtocol.DisplayCapabilities):
