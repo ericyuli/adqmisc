@@ -34,8 +34,8 @@ MSG_SETSTATUSBAR_ACK	= 34
 
 MSG_GETMENUITEMS	= 35
 
-MSG_SETSETTINGS  	= 36
-MSG_SETSETTINGS_ACK 	= 37
+MSG_SETMENUSETTINGS  	= 36
+MSG_SETMENUSETTINGS_ACK = 37
 
 MSG_GETTIME		= 38
 MSG_GETTIME_ACK		= 39
@@ -151,7 +151,12 @@ def EncodeAck(ackMessageId):
 
 def EncodeGetMenuItemAck(isAlertItem, totalAlerts, unreadAlerts, alertIdx, menuItemId, itemDescription, itemBitmap):
 	# FIXME: alertIdx is unknown
-	payload = struct.pack(">BHHHBB", not isAlertItem, totalAlerts, unreadAlerts, alertIdx, menuItemId + 3, 0) # final 0 is for plaintext vs bitmapimage
+	payload = struct.pack(">BHHHBB", not isAlertItem, 
+					 totalAlerts, 
+					 unreadAlerts, 
+					 alertIdx, 
+					 menuItemId + 3, # this needs to need 3 added on here for some reason.
+					 0) # final 0 is for plaintext vs bitmapimage (1)
 	payload += struct.pack(">H", 0) # unused timestamp string
 	payload += struct.pack(">H", 0) # unused header string
 	payload += struct.pack(">H", len(itemDescription)) + itemDescription
@@ -195,7 +200,9 @@ def EncodeClearDisplay():
 
 
 
-def EncodeSetSettings(flags, fontSize, initialMenuItemId):
+def EncodeSetMenuSettings(flags, fontSize, initialMenuItemId):
+	# This message is never acked for some reason. 
+
 	# FIXME: dunno quite wtf this is all doing
 	# flags 01:
 	# flags 02:
@@ -204,8 +211,11 @@ def EncodeSetSettings(flags, fontSize, initialMenuItemId):
 	# flags 10:
 	# flags 20:
 	# flags 40:
-	# flags 80:	
-	return EncodeLVMessage(MSG_SETSETTINGS, struct.pack(">BBB", flags, fontSize, initialMenuItemId))
+	# flags 80:
+
+	# what does fontSize control? changing it doesn't seem to have any effect...
+
+	return EncodeLVMessage(MSG_SETMENUSETTINGS, struct.pack(">BBB", flags, fontSize, initialMenuItemId))
 
 def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, itemDescription, itemBitmap):
 	# FIXME: not quite sure of all this yet
@@ -374,11 +384,13 @@ class Navigation:
 
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
-		(byte0, byte1, navigation, self.x, self.y) = struct.unpack(">BBBBB", msg)
+		(byte0, byte1, navigation, self.menuItemId, menuId) = struct.unpack(">BBBBB", msg)
 		if byte0 != 0:
 			print >>sys.stderr, "Navigation with unknown byte0 value %i" % byte0
 		if byte1 != 3:
 			print >>sys.stderr, "Navigation with unknown byte1 value %i" % byte1
+		if menuId != 10:
+			print >>sys.stderr, "Navigation with unexpected menuId value %i" % menuId
 		if (navigation != 32) and ((navigation < 1) or (navigation > 15)):
 			print >>sys.stderr, "Navigation with out of range value %i" % navigation
 
@@ -413,7 +425,7 @@ class Navigation:
 		elif self.navType == NAVTYPE_MENUSELECT:
 			sT = "MenuSelect"
 
-		return "<Navigation>\nAction %s\nType %s\nX %i\nY %i" % (sA, sT, self.x, self.y)
+		return "<Navigation>\nAction %s\nType %s\nMenuItemId %i" % (sA, sT, self.menuItemId)
 
 class GetScreenMode:
 
