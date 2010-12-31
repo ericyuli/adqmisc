@@ -6,6 +6,11 @@ import sys
 import time
 import struct
 
+
+menuVibrationTime = 5
+is24HourClock = True
+
+
 testPngFd = open("test36.png")
 testPng = testPngFd.read()
 testPngFd.close()
@@ -13,6 +18,10 @@ testPngFd.close()
 testPngFd = open("test128.png")
 testPng128 = testPngFd.read()
 testPngFd.close()
+
+
+
+
 
 serverSocket = bluetooth.BluetoothSocket( bluetooth.RFCOMM )
 serverSocket.bind(("",1))
@@ -28,46 +37,42 @@ clientSocket.send(LiveViewMessages.EncodeGetCaps())
 
 while True:
 	for msg in LiveViewMessages.Decode(clientSocket.recv(4096)):
-		if isinstance(msg, LiveViewMessages.GetMenuItems):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
+		# Handle result messages
+		if isinstance(msg, LiveViewMessages.Result):
+			if msg.code != LiveViewMessages.RESULT_OK:
+				print "---------------------------- NON-OK RESULT RECEIVED ----------------------------------"
+				print msg
+			continue
 
+		# Handling for all other messages
+		clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
+		if isinstance(msg, LiveViewMessages.GetMenuItems):
 			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(0, True, 0, "Moo", testPng))
 			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(1, False, 20, "Hi1", testPng))
 			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(2, False, 0, "Hi2", testPng))
 			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(3, True, 0, "Hi3", testPng))
 
 		elif isinstance(msg, LiveViewMessages.GetMenuItem):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
-			
 			print "---------------------------- GETMENUITEM RECEIVED ----------------------------------"
 			# FIXME: do something!
 
 		elif isinstance(msg, LiveViewMessages.DisplayCapabilities):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 			deviceCapabilities = msg
 			
 			clientSocket.send(LiveViewMessages.EncodeSetMenuSize(4))
-			clientSocket.send(LiveViewMessages.EncodeSetMenuSettings(5, 12, 0))
-			
-		elif isinstance(msg, LiveViewMessages.Result):
-			pass
-		elif isinstance(msg, LiveViewMessages.GetTime):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
+			clientSocket.send(LiveViewMessages.EncodeSetMenuSettings(menuVibrationTime, 12, 0))
 
-			clientSocket.send(LiveViewMessages.EncodeGetTimeResponse(time.time(), True))
+		elif isinstance(msg, LiveViewMessages.GetTime):
+			clientSocket.send(LiveViewMessages.EncodeGetTimeResponse(time.time(), is24HourClock))
+
 		elif isinstance(msg, LiveViewMessages.DeviceStatus):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
-			
 			clientSocket.send(LiveViewMessages.EncodeDeviceStatusAck())
 
 		elif isinstance(msg, LiveViewMessages.GetAlert):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
-
 			# FIXME: do summat
+			pass
 
 		elif isinstance(msg, LiveViewMessages.Navigation):
-			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
-
 			clientSocket.send(LiveViewMessages.EncodeNavigationResponse(LiveViewMessages.RESULT_OK))
 
 	#		clientSocket.send(LiveViewMessages.EncodeSetMenuSize(0))
@@ -100,8 +105,6 @@ while True:
 			
 	#		clientSocket.send(LiveViewMessages.EncodeSetVibrate(1, 1000))
 
-		else:
-			print "------------------- UNKNOWN -----------------"
 		print msg
 
 clientSocket.close()

@@ -82,7 +82,12 @@ BRIGHTNESS_OFF		= 48
 BRIGHTNESS_DIM		= 49
 BRIGHTNESS_MAX		= 50
 
-clientSoftwareVersion = "0.0.5"
+CLIENT_SOFTWARE_VERSION = "0.0.3"
+
+
+
+
+
 
 def DecodeLVMessage(msg):
 	(messageId, headerLen, payloadLen) = struct.unpack(">BBL", msg[0:6])
@@ -155,7 +160,7 @@ def EncodeLVMessage(messageId, data):
 	return struct.pack(">BBL", messageId, 4, len(data)) + data
 
 def EncodeGetCaps():
-	return EncodeLVMessage(MSG_GETCAPS, struct.pack(">B", len(clientSoftwareVersion)) + clientSoftwareVersion)
+	return EncodeLVMessage(MSG_GETCAPS, struct.pack(">B", len(CLIENT_SOFTWARE_VERSION)) + CLIENT_SOFTWARE_VERSION)
 
 def EncodeSetVibrate(delayTime, onTime):
 	return EncodeLVMessage(MSG_SETVIBRATE, struct.pack(">HH", delayTime, onTime))
@@ -315,7 +320,7 @@ class DisplayCapabilities:
 			print >>sys.stderr, "DisplayCapabilities with non-zero idle timer %i" % idleTimer
 	
 	def __str__(self):
-		return "<DisplayCapabilities Width:%i Height:%i StatusBarWidth:%i StatusBarHeight:%i ViewWidth:%i ViewHeight:%i AnnounceWidth:%i AnnounceHeight:%i TextChunkSize:%i Software Version:%s>" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.softwareVersion)
+		return "<DisplayCapabilities Width:%i Height:%i StatusBarWidth:%i StatusBarHeight:%i ViewWidth:%i ViewHeight:%i AnnounceWidth:%i AnnounceHeight:%i TextChunkSize:%i SoftwareVersion:%s>" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.softwareVersion)
 
 class Result:
 
