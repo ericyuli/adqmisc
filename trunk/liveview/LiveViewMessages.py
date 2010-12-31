@@ -84,7 +84,8 @@ BRIGHTNESS_MAX		= 50
 
 def DecodeLVMessage(msg):
 	(messageId, headerLen, payloadLen) = struct.unpack(">BBL", msg[0:6])
-	payload = msg[2 + headerLen:]
+	msgLength = 2 + headerLen + payloadLen
+	payload = msg[2 + headerLen: msgLength]
 
 	if headerLen != 4:
 		raise Exception("Unexpected header length %i" % headerLen)
@@ -95,50 +96,59 @@ def DecodeLVMessage(msg):
 			i += 1
 		raise Exception("Payload length is not as expected %i != %i", (payloadLen, len(payload)))
 	
-	return (messageId, payload)
+	return (messageId, payload, msgLength)
 
 def Decode(msg):
-	(messageId, payload) = DecodeLVMessage(msg)
-	if messageId == MSG_GETCAPS_ACK:
-		return DisplayCapabilities(messageId, payload)
-	elif messageId == MSG_SETLED_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_SETVIBRATE_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_DEVICESTATUS_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_SETSCREENMODE_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_CLEARDISPLAY_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_SETSTATUSBAR_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_DISPLAYTEXT_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_DISPLAYBITMAP_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_DISPLAYPANEL_ACK:
-		return Result(messageId, payload)
-	elif messageId == MSG_GETMENUITEMS:
-		return GetMenuItems(messageId, payload)
-	elif messageId == MSG_GETMENUITEM:
-		return GetMenuItem(messageId, payload)
-	elif messageId == MSG_GETTIME:
-		return GetTime(messageId, payload)
-	elif messageId == MSG_GETALERT:
-		return GetAlert(messageId, payload)
-	elif messageId == MSG_DEVICESTATUS:
-		return DeviceStatus(messageId, payload)
-	elif messageId == MSG_NAVIGATION:
-		return Navigation(messageId, payload)
-	elif messageId == MSG_GETSCREENMODE_ACK:
-		return GetScreenMode(messageId, payload)
-	else:
-		print >>sys.stderr, "Unknown message id %i" % messageId
-		i = 0
-		for x in payload:
-			print >>sys.stderr, "\t%02x: %02x" % (i, ord(x))
-			i += 1
+	
+	result = []
+	
+	consumed = 0
+	while consumed < len(msg):
+		(messageId, payload, msgLength) = DecodeLVMessage(msg[consumed:])
+		consumed += msgLength
+
+		if messageId == MSG_GETCAPS_ACK:
+			result.append(DisplayCapabilities(messageId, payload))
+		elif messageId == MSG_SETLED_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_SETVIBRATE_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_DEVICESTATUS_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_SETSCREENMODE_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_CLEARDISPLAY_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_SETSTATUSBAR_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_DISPLAYTEXT_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_DISPLAYBITMAP_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_DISPLAYPANEL_ACK:
+			result.append(Result(messageId, payload))
+		elif messageId == MSG_GETMENUITEMS:
+			result.append(GetMenuItems(messageId, payload))
+		elif messageId == MSG_GETMENUITEM:
+			result.append(GetMenuItem(messageId, payload))
+		elif messageId == MSG_GETTIME:
+			result.append(GetTime(messageId, payload))
+		elif messageId == MSG_GETALERT:
+			result.append(GetAlert(messageId, payload))
+		elif messageId == MSG_DEVICESTATUS:
+			result.append(DeviceStatus(messageId, payload))
+		elif messageId == MSG_NAVIGATION:
+			result.append(Navigation(messageId, payload))
+		elif messageId == MSG_GETSCREENMODE_ACK:
+			result.append(GetScreenMode(messageId, payload))
+		else:
+			print >>sys.stderr, "Unknown message id %i" % messageId
+			i = 0
+			for x in payload:
+				print >>sys.stderr, "\t%02x: %02x" % (i, ord(x))
+				i += 1
+
+	return result
 
 def EncodeLVMessage(messageId, data):
 	return struct.pack(">BBL", messageId, 4, len(data)) + data
