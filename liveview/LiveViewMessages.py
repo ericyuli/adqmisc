@@ -101,7 +101,6 @@ def DecodeLVMessage(msg):
 def Decode(msg):
 	
 	result = []
-	
 	consumed = 0
 	while consumed < len(msg):
 		(messageId, payload, msgLength) = DecodeLVMessage(msg[consumed:])
