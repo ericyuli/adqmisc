@@ -158,11 +158,11 @@ def EncodeSetMenuSize(menuSize):
 def EncodeAck(ackMessageId):
 	return EncodeLVMessage(MSG_ACK, struct.pack(">B", ackMessageId))
 
-def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, itemDescription, itemBitmap):
+def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, text, itemBitmap):
 	payload = struct.pack(">BHHHBB", not isAlertItem, 0, unreadCount, 0, menuItemId + 3, 0)	# final 0 is for plaintext vs bitmapimage (1) strings
 	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", 0) 			# unused string
-	payload += struct.pack(">H", len(itemDescription)) + itemDescription
+	payload += struct.pack(">H", len(text)) + text
 	payload += itemBitmap
 
 	return EncodeLVMessage(MSG_GETMENUITEM_ACK, payload)

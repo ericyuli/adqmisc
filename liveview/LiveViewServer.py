@@ -1,7 +1,7 @@
 #!/usr/bin/python2
 
 import bluetooth
-import LiveViewProtocol
+import LiveViewMessages
 import sys
 import time
 import struct
@@ -24,85 +24,86 @@ bluetooth.advertise_service(serverSocket, "LiveView",
 			    )
 clientSocket, address = serverSocket.accept()
 
-clientSocket.send(LiveViewProtocol.EncodeGetCaps())
-deviceCaps = LiveViewProtocol.Decode(clientSocket.recv(1024))
-clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETCAPS_ACK))
+clientSocket.send(LiveViewMessages.EncodeGetCaps())
+deviceCaps = LiveViewMessages.Decode(clientSocket.recv(1024))
+clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETCAPS_ACK))
 print deviceCaps
 
-clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
-clientSocket.send(LiveViewProtocol.EncodeSetMenuSettings(5, 12, 0))
+clientSocket.send(LiveViewMessages.EncodeSetMenuSize(4))
+clientSocket.send(LiveViewMessages.EncodeSetMenuSettings(5, 12, 0))
 
 tmpxxx = "Hi0"
 
 while True:
-	tmp = LiveViewProtocol.Decode(clientSocket.recv(1024))
-	if isinstance(tmp, LiveViewProtocol.GetMenuItems):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEMS))
+	tmp = LiveViewMessages.Decode(clientSocket.recv(1024))
+	if isinstance(tmp, LiveViewMessages.GetMenuItems):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETMENUITEMS))
 
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 0, "Moo", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(1, False, 20, "Hi1", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(2, False, 0, "Hi2", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(3, True, 0, "Hi3", testPng))
+		clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(0, True, 0, "Moo", testPng))
+		clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(1, False, 20, "Hi1", testPng))
+		clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(2, False, 0, "Hi2", testPng))
+		clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(3, True, 0, "Hi3", testPng))
 
-	elif isinstance(tmp, LiveViewProtocol.GetMenuItem):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEM))
+	elif isinstance(tmp, LiveViewMessages.GetMenuItem):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETMENUITEM))
 		
 		print "---------------------------- GETMENUITEM RECEIVED ----------------------------------"
 		# FIXME: do something!
 
-	elif isinstance(tmp, LiveViewProtocol.DisplayCapabilities):
+	elif isinstance(tmp, LiveViewMessages.DisplayCapabilities):
 		pass
-	elif isinstance(tmp, LiveViewProtocol.Result):
+	elif isinstance(tmp, LiveViewMessages.Result):
 		pass
-	elif isinstance(tmp, LiveViewProtocol.GetTime):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETTIME))
+	elif isinstance(tmp, LiveViewMessages.GetTime):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETTIME))
 		
-		clientSocket.send(LiveViewProtocol.EncodeGetTimeAck(time.time(), True))
-	elif isinstance(tmp, LiveViewProtocol.DeviceStatus):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_DEVICESTATUS))
+		clientSocket.send(LiveViewMessages.EncodeGetTimeAck(time.time(), True))
+	elif isinstance(tmp, LiveViewMessages.DeviceStatus):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_DEVICESTATUS))
 		
-		clientSocket.send(LiveViewProtocol.EncodeDeviceStatusAck())
+		clientSocket.send(LiveViewMessages.EncodeDeviceStatusAck())
 
-	elif isinstance(tmp, LiveViewProtocol.GetAlert):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETALERT))
+	elif isinstance(tmp, LiveViewMessages.GetAlert):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETALERT))
 
 		# FIXME: do summat
 
-	elif isinstance(tmp, LiveViewProtocol.Navigation):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_NAVIGATION))		
-		clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_CANCEL))
+	elif isinstance(tmp, LiveViewMessages.Navigation):
+		clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_NAVIGATION))		
+		clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_CANCEL))
 
-#		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(0))
-#		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
-#		clientSocket.send(LiveViewProtocol.EncodeDisplayBitmap(100, 100, testPng))
-#		clientSocket.send(LiveViewProtocol.EncodeSetScreenMode(50, False))
-#		clientSocket.send(LiveViewProtocol.EncodeDisplayText("WOOOOOOOOOOOO"))
+#		clientSocket.send(LiveViewMessages.EncodeSetMenuSize(0))
+#		clientSocket.send(LiveViewMessages.EncodeClearDisplay())
+#		clientSocket.send(LiveViewMessages.EncodeDisplayBitmap(100, 100, testPng))
+#		clientSocket.send(LiveViewMessages.EncodeSetScreenMode(50, False))
+#		clientSocket.send(LiveViewMessages.EncodeDisplayText("WOOOOOOOOOOOO"))
 
-#		clientSocket.send(LiveViewProtocol.EncodeLVMessage(31, ""))
+#		clientSocket.send(LiveViewMessages.EncodeLVMessage(31, ""))
 
 
-#		clientSocket.send(LiveViewProtocol.EncodeSetScreenMode(0, False))
-#		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
-#		clientSocket.send(LiveViewProtocol.EncodeLVMessage(48, struct.pack(">B", 38) + "moo"))
+#		clientSocket.send(LiveViewMessages.EncodeSetScreenMode(0, False))
+#		clientSocket.send(LiveViewMessages.EncodeClearDisplay())
+#		clientSocket.send(LiveViewMessages.EncodeLVMessage(48, struct.pack(">B", 38) + "moo"))
 
 #		tmpxxx = "MOOO"
-#		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
-#		clientSocket.send(LiveViewProtocol.EncodeDisplayText("moo"))
+#		clientSocket.send(LiveViewMessages.EncodeSetMenuSize(4))
+#		clientSocket.send(LiveViewMessages.EncodeDisplayText("moo"))
 
-		clientSocket.send(LiveViewProtocol.EncodeSetStatusBar(tmp.menuItemId, 200, testPng))
+#		clientSocket.send(LiveViewMessages.EncodeSetStatusBar(tmp.menuItemId, 200, testPng))
 		
-#		clientSocket.send(EncodeLVMessage(5, LiveViewProtocol.EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap)))
+#		clientSocket.send(EncodeLVMessage(5, LiveViewMessages.EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap)))
 
-#		if tmp.navType == LiveViewProtocol.NAVTYPE_DOWN:
-#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_OK))
-#			clientSocket.send(LiveViewProtocol.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, False))
-#		elif tmp.navType == LiveViewProtocol.NAVTYPE_UP:
-#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_OK))
-#			clientSocket.send(LiveViewProtocol.EncodeDisplayText("ADQ WOS HERE"))
-#		elif tmp.navType == LiveViewProtocol.NAVTYPE_SELECT:
-#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_EXIT))
+		if tmp.navType == LiveViewMessages.NAVTYPE_DOWN:
+			clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_OK))
+			clientSocket.send(LiveViewMessages.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, False))
+		elif tmp.navType == LiveViewMessages.NAVTYPE_UP:
+			clientSocket.send(LiveViewMessages.EncodeDismissPanel())
+#			clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_OK))
+#			clientSocket.send(LiveViewMessages.EncodeDisplayText("ADQ WOS HERE"))
+#		elif tmp.navType == LiveViewMessages.NAVTYPE_SELECT:
+#			clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_EXIT))
 		
-#		clientSocket.send(LiveViewProtocol.EncodeSetVibrate(1, 1000))
+#		clientSocket.send(LiveViewMessages.EncodeSetVibrate(1, 1000))
 
 	else:
 		print "UNKNOWN"
