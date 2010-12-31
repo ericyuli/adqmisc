@@ -39,10 +39,10 @@ while True:
 	if isinstance(tmp, LiveViewProtocol.GetMenuItems):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEMS))
 
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(True, 0, 0, 0, 0, tmpxxx, testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(False, 5, 2, 2, 1, "Hi1", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(False, 5, 3, 3, 2, "Hi2", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(True, 5, 4, 4, 3, "Hi3", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 0, tmpxxx, testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(1, False, 2, "Hi1", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(2, False, 3, "Hi2", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(3, True, 4, "Hi3", testPng))
 
 	elif isinstance(tmp, LiveViewProtocol.GetMenuItem):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEM))
@@ -74,10 +74,10 @@ while True:
 		clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_CANCEL))
 
 		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(0))
-#		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
+		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
 #		clientSocket.send(LiveViewProtocol.EncodeDisplayBitmap(100, 100, testPng))
 #		clientSocket.send(LiveViewProtocol.EncodeSetScreenMode(50, False))
-#		clientSocket.send(LiveViewProtocol.EncodeDisplayText("moo"))
+		clientSocket.send(LiveViewProtocol.EncodeDisplayText("WOOOOOOOOOOOO"))
 
 #		clientSocket.send(LiveViewProtocol.EncodeLVMessage(31, ""))
 
