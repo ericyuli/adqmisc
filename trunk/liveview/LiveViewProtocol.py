@@ -9,6 +9,9 @@ MSG_GETCAPS_ACK 	= 2
 MSG_DISPLAYTEXT		= 3
 MSG_DISPLAYTEXT_ACK	= 4
 
+MSG_DISPLAYPANEL	= 5
+MSG_DISPLAYPANEL_ACK	= 6
+
 MSG_DEVICESTATUS	= 7
 MSG_DEVICESTATUS_ACK 	= 8
 
@@ -86,6 +89,10 @@ def DecodeLVMessage(msg):
 	if headerLen != 4:
 		raise Exception("Unexpected header length %i" % headerLen)
 	if payloadLen != len(payload):
+		i = 0
+		for x in msg:
+			print >>sys.stderr, "\t%02x: %02x" % (i, ord(x))
+			i += 1
 		raise Exception("Payload length is not as expected %i != %i", (payloadLen, len(payload)))
 	
 	return (messageId, payload)
@@ -109,6 +116,8 @@ def Decode(msg):
 	elif messageId == MSG_DISPLAYTEXT_ACK:
 		return Result(messageId, payload)
 	elif messageId == MSG_DISPLAYBITMAP_ACK:
+		return Result(messageId, payload)
+	elif messageId == MSG_DISPLAYPANEL_ACK:
 		return Result(messageId, payload)
 	elif messageId == MSG_GETMENUITEMS:
 		return GetMenuItems(messageId, payload)
@@ -163,6 +172,30 @@ def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, itemDescription, 
 
 	return EncodeLVMessage(MSG_GETMENUITEM_ACK, payload)
 
+def EncodeDisplayPanel(topText, bottomText, bitmap, alertUser):
+
+	id = 0x50
+	if not alertUser:
+		id |= 1
+
+	payload = struct.pack(">BHHHBB", 0,			# unused isAlertItem
+					 0,			# unused total alert count 
+					 0,			# unused unread cound 
+					 0, 			# unused current alert index
+					 id,
+					 0)			# final 0 is for plaintext vs bitmapimage (1) in description
+	payload += struct.pack(">H", len(topText)) + topText
+	payload += struct.pack(">H", 0) 			# unused string
+	payload += struct.pack(">H", len(bottomText)) + bottomText
+	payload += bitmap
+
+	return EncodeLVMessage(MSG_DISPLAYPANEL, payload)
+
+def EncodeDisplayBitmap(x, y, bitmap):
+	# Only works if you have sent SetMenuItems(0)
+	# Meaning of byte 2 is unknown, but /is/ important!
+	return EncodeLVMessage(MSG_DISPLAYBITMAP, struct.pack(">BBB", x, y, 1) + bitmap)
+
 def EncodeGetTimeAck(time, is24HourDisplay):
 	return EncodeLVMessage(MSG_GETTIME_ACK, struct.pack(">LB", time, not is24HourDisplay))
 
@@ -174,11 +207,6 @@ def EncodeDeviceStatusAck():
 
 def EncodeNavigationAck(result):
 	return EncodeLVMessage(MSG_NAVIGATION_ACK, struct.pack(">B", result))
-
-def EncodeDisplayBitmap(x, y, bitmap):
-	# Only works if you have sent SetMenuItems(0)
-	# Meaning of byte 2 is unknown, but /is/ important!
-	return EncodeLVMessage(MSG_DISPLAYBITMAP, struct.pack(">BBB", x, y, 1) + bitmap)
 
 def EncodeSetScreenMode(brightness, auto):
 	# Only works if you have sent SetMenuItems(0)
@@ -195,28 +223,19 @@ def EncodeClearDisplay():
 	# Only works if you have sent SetMenuItems(0)
 	return EncodeLVMessage(MSG_CLEARDISPLAY, "")
 
-
-
-
-
-def EncodeSetMenuSettings(flags, fontSize, initialMenuItemId):
+def EncodeSetMenuSettings(vibrationTime, fontSize, initialMenuItemId):
+	# vibrationTime is in units of approximately 100ms
 	# This message is never acked for some reason. 
-
-	# FIXME: dunno quite wtf this is all doing
-	# flags 01:
-	# flags 02:
-	# flags 04: vibrator on/off
-	# flags 08:
-	# flags 10:
-	# flags 20:
-	# flags 40:
-	# flags 80:
 
 	# what does fontSize control? changing it doesn't seem to have any effect...
 
-	return EncodeLVMessage(MSG_SETMENUSETTINGS, struct.pack(">BBB", flags, fontSize, initialMenuItemId))
+	return EncodeLVMessage(MSG_SETMENUSETTINGS, struct.pack(">BBB", vibrationTime, fontSize, initialMenuItemId))
 
-def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, itemDescription, itemBitmap):
+
+
+
+
+def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap):
 	# FIXME: not quite sure of all this yet
 	# byte 00: flag set to 1 if icon is a normal menu item
 
@@ -243,9 +262,7 @@ def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId
 
 	# byte : length of body string
 	# byte : 
-	# <body string>
-	
-	
+	# <body string>	
 	
 	# message type 28 (get alert ack) has some extra fields here
 	# byte: ? unknown
@@ -258,9 +275,9 @@ def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId
 	# <PNG data for menu item>
 	
 	payload = struct.pack(">BHHHBB", not isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, 0)
-	payload += struct.pack(">H", 0)
-	payload += struct.pack(">H", 0)
-	payload += struct.pack(">H", len(itemDescription)) + itemDescription
+	payload += struct.pack(">H", len(top)) + top
+	payload += struct.pack(">H", len(mid)) + mid
+	payload += struct.pack(">H", len(body)) + body
 	payload += itemBitmap
 	
 	return payload
@@ -268,7 +285,7 @@ def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId
 def EncodeSetStatusBar(itemBitmap):
 	# FIXME: hmmmmmmm not entirely certain about this!
 	# FIXME: need the + 3? 
-	return EncodeLVMessage(MSG_SETSTATUSBAR, EncodeUIPayload(0, 0, 20, 0, 1, "", itemBitmap))
+	return EncodeLVMessage(MSG_SETSTATUSBAR, EncodeUIPayload(0, 0, 0, 0, 0, "", itemBitmap))
 
 def EncodeDisplayText(s):
 	# Only works if you have sent SetMenuItems(0)

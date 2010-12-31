@@ -30,7 +30,7 @@ clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETCAPS_ACK))
 print deviceCaps
 
 clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
-clientSocket.send(LiveViewProtocol.EncodeSetMenuSettings(0xff, 12, 0))
+clientSocket.send(LiveViewProtocol.EncodeSetMenuSettings(5, 12, 0))
 
 tmpxxx = "Hi0"
 
@@ -39,7 +39,7 @@ while True:
 	if isinstance(tmp, LiveViewProtocol.GetMenuItems):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEMS))
 
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 0, tmpxxx, testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 255, "Moo", testPng))
 		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(1, False, 2, "Hi1", testPng))
 		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(2, False, 3, "Hi2", testPng))
 		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(3, True, 4, "Hi3", testPng))
@@ -69,15 +69,14 @@ while True:
 		# FIXME: do summat
 
 	elif isinstance(tmp, LiveViewProtocol.Navigation):
-		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_NAVIGATION))
-		
+		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_NAVIGATION))		
 		clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_CANCEL))
 
-		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(0))
-		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
+#		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(0))
+#		clientSocket.send(LiveViewProtocol.EncodeClearDisplay())
 #		clientSocket.send(LiveViewProtocol.EncodeDisplayBitmap(100, 100, testPng))
 #		clientSocket.send(LiveViewProtocol.EncodeSetScreenMode(50, False))
-		clientSocket.send(LiveViewProtocol.EncodeDisplayText("WOOOOOOOOOOOO"))
+#		clientSocket.send(LiveViewProtocol.EncodeDisplayText("WOOOOOOOOOOOO"))
 
 #		clientSocket.send(LiveViewProtocol.EncodeLVMessage(31, ""))
 
@@ -91,6 +90,10 @@ while True:
 #		clientSocket.send(LiveViewProtocol.EncodeDisplayText("moo"))
 
 #		clientSocket.send(LiveViewProtocol.EncodeSetStatusBar(testPng))
+		
+#		clientSocket.send(EncodeLVMessage(5, LiveViewProtocol.EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap)))
+		clientSocket.send(LiveViewProtocol.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, True))
+		
 #		clientSocket.send(LiveViewProtocol.EncodeSetVibrate(1, 1000))
 
 	else:
