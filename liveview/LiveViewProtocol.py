@@ -178,12 +178,7 @@ def EncodeDisplayPanel(topText, bottomText, bitmap, alertUser):
 	if not alertUser:
 		id |= 1
 
-	payload = struct.pack(">BHHHBB", 0,			# unused isAlertItem
-					 0,			# unused total alert count 
-					 0,			# unused unread cound 
-					 0, 			# unused current alert index
-					 id,
-					 0)			# final 0 is for plaintext vs bitmapimage (1) strings
+	payload = struct.pack(">BHHHBB", 0, 0, 0, 0, id, 0)	# final 0 is for plaintext vs bitmapimage (1) strings
 	payload += struct.pack(">H", len(topText)) + topText
 	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", len(bottomText)) + bottomText
@@ -195,6 +190,18 @@ def EncodeDisplayBitmap(x, y, bitmap):
 	# Only works if you have sent SetMenuItems(0)
 	# Meaning of byte 2 is unknown, but /is/ important!
 	return EncodeLVMessage(MSG_DISPLAYBITMAP, struct.pack(">BBB", x, y, 1) + bitmap)
+
+def EncodeSetStatusBar(menuItemId, unreadAlerts, itemBitmap):
+	# Note that menu item#0 is treated specially if you have non-zero unreadAlerts...
+	# Its value will be automatically updated from the other menu items... e.g. if item #3 currently has 20, and is changed to 200 with this call, item#0 will automatically be set to 180 (200-20). Slightly annoying!
+
+	payload = struct.pack(">BHHHBB", 0, 0, unreadAlerts, 0, menuItemId + 3, 0)
+	payload += struct.pack(">H", 0)
+	payload += struct.pack(">H", 0)
+	payload += struct.pack(">H", 0)
+	payload += itemBitmap
+	
+	return EncodeLVMessage(MSG_SETSTATUSBAR, payload)
 
 def EncodeGetTimeAck(time, is24HourDisplay):
 	return EncodeLVMessage(MSG_GETTIME_ACK, struct.pack(">LB", time, not is24HourDisplay))
@@ -282,14 +289,9 @@ def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId
 	
 	return payload
 
-def EncodeSetStatusBar(itemBitmap):
-	# FIXME: hmmmmmmm not entirely certain about this!
-	# FIXME: need the + 3? 
-	return EncodeLVMessage(MSG_SETSTATUSBAR, EncodeUIPayload(0, 0, 0, 0, 0, "", itemBitmap))
-
 def EncodeDisplayText(s):
 	# Only works if you have sent SetMenuItems(0)
-	# FIXME: seems to break completely!
+	# FIXME: doesn't seem to do anything
 	# meaning of 0 byte is unknown...
 	return EncodeLVMessage(MSG_DISPLAYTEXT, struct.pack(">B", 0) + s)
 
