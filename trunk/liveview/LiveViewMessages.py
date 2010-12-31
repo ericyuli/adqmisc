@@ -317,7 +317,7 @@ class DisplayCapabilities:
 			print >>sys.stderr, "DisplayCapabilities with non-zero idle timer %i" % idleTimer
 	
 	def __str__(self):
-		return "<DisplayCapabilities>\nWidth %i\nHeight %i\nStatusBarWidth %i\nStatusBarHeight %i\nViewWidth %i\nViewHeight %i\nAnnounceWidth %i\nAnnounceHeight %i\nTextChunkSize %i\nSoftware Version: %s" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.softwareVersion)
+		return "<DisplayCapabilities Width:%i Height:%i StatusBarWidth:%i StatusBarHeight:%i ViewWidth:%i ViewHeight:%i AnnounceWidth:%i AnnounceHeight:%i TextChunkSize:%i Software Version:%s>" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.softwareVersion)
 
 class Result:
 
@@ -340,7 +340,7 @@ class Result:
 		elif self.code == RESULT_CANCEL:
 			s = "CANCEL"
 
-		return "<Result>\nMessageId: %i\nCode: %i (%s)" % (self.messageId, self.code, s)
+		return "<Result MessageId:%i Code:%s>" % (self.messageId, s)
 
 class GetMenuItem:
 
@@ -351,7 +351,7 @@ class GetMenuItem:
 		# FIXME: subtract 3 from menu item id?
 
 	def __str__(self):
-		return "<GetMenuItem>\nMenuItemId: %i" % (self.menuItemId)
+		return "<GetMenuItem MenuItemId:%i>" % self.menuItemId
 
 class GetMenuItems:
 
@@ -392,7 +392,7 @@ class DeviceStatus:
 		elif self.deviceStatus == DEVICESTATUS_MENU:
 			s = "Menu"
 
-		return "<DeviceStatus>\nStatus: %i (%s)" % (self.deviceStatus, s)
+		return "<DeviceStatus Status:%s>" % s
 
 class GetAlert:
 	
@@ -403,7 +403,7 @@ class GetAlert:
 			print >>sys.stderr, "GetAlert with non zero text values! %i %i %i %i" % (self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
 		
 	def __str__(self):
-		return "<GetAlert>\nMenuItemId %i\nTextLength %i\nMaxLineBreakSize %i\nFontSize %i\nTextImageWidth %i\nTextImageHeight %i" % (self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
+		return "<GetAlert MenuItemId:%i TextLength:%i MaxLineBreakSize:%i FontSize:%i TextImageWidth:%i TextImageHeight:%i>" % (self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
 
 class Navigation:
 
@@ -450,7 +450,7 @@ class Navigation:
 		elif self.navType == NAVTYPE_MENUSELECT:
 			sT = "MenuSelect"
 
-		return "<Navigation>\nAction %s\nType %s\nMenuItemId %i" % (sA, sT, self.menuItemId)
+		return "<Navigation Action:%s Type:%s MenuItemId:%i>" % (sA, sT, self.menuItemId)
 
 class GetScreenMode:
 
@@ -461,4 +461,4 @@ class GetScreenMode:
 		self.brightness = raw >> 1
 
 	def __str__(self):
-		return "<GetScreenMode>\nAuto: %i\nBrightness: %i" % (self.auto, self.brightness)
+		return "<GetScreenMode Auto:%i Brightness:%i>" % (self.auto, self.brightness)
