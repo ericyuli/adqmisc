@@ -82,6 +82,8 @@ BRIGHTNESS_OFF		= 48
 BRIGHTNESS_DIM		= 49
 BRIGHTNESS_MAX		= 50
 
+clientSoftwareVersion = "0.0.5"
+
 def DecodeLVMessage(msg):
 	(messageId, headerLen, payloadLen) = struct.unpack(">BBL", msg[0:6])
 	msgLength = 2 + headerLen + payloadLen
@@ -153,7 +155,7 @@ def EncodeLVMessage(messageId, data):
 	return struct.pack(">BBL", messageId, 4, len(data)) + data
 
 def EncodeGetCaps():
-	return EncodeLVMessage(MSG_GETCAPS, struct.pack(">B5s", 5, "0.0.3"))
+	return EncodeLVMessage(MSG_GETCAPS, struct.pack(">B", len(clientSoftwareVersion)) + clientSoftwareVersion)
 
 def EncodeSetVibrate(delayTime, onTime):
 	return EncodeLVMessage(MSG_SETVIBRATE, struct.pack(">HH", delayTime, onTime))
