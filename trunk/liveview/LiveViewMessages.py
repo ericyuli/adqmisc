@@ -4,7 +4,7 @@ import datetime
 import sys
 
 MSG_GETCAPS		= 1
-MSG_GETCAPS_ACK 	= 2
+MSG_GETCAPS_RESP 	= 2
 
 MSG_DISPLAYTEXT		= 3
 MSG_DISPLAYTEXT_ACK	= 4
@@ -25,12 +25,12 @@ MSG_SETMENUSIZE		= 23
 MSG_SETMENUSIZE_ACK	= 24
 
 MSG_GETMENUITEM		= 25
-MSG_GETMENUITEM_ACK	= 26
+MSG_GETMENUITEM_RESP	= 26
 
 MSG_GETALERT		= 27
 
 MSG_NAVIGATION		= 29
-MSG_NAVIGATION_ACK	= 30
+MSG_NAVIGATION_RESP	= 30
 
 MSG_SETSTATUSBAR	= 33
 MSG_SETSTATUSBAR_ACK	= 34
@@ -41,7 +41,7 @@ MSG_SETMENUSETTINGS  	= 36
 MSG_SETMENUSETTINGS_ACK = 37
 
 MSG_GETTIME		= 38
-MSG_GETTIME_ACK		= 39
+MSG_GETTIME_RESP	= 39
 
 MSG_SETLED 		= 40
 MSG_SETLED_ACK 		= 41
@@ -55,7 +55,7 @@ MSG_SETSCREENMODE	= 64
 MSG_SETSCREENMODE_ACK	= 65
 
 MSG_GETSCREENMODE	= 66
-MSG_GETSCREENMODE_ACK	= 67
+MSG_GETSCREENMODE_RESP	= 67
 
 DEVICESTATUS_OFF	= 0
 DEVICESTATUS_ON		= 1
@@ -107,7 +107,7 @@ def Decode(msg):
 		(messageId, payload, msgLength) = DecodeLVMessage(msg[consumed:])
 		consumed += msgLength
 
-		if messageId == MSG_GETCAPS_ACK:
+		if messageId == MSG_GETCAPS_RESP:
 			result.append(DisplayCapabilities(messageId, payload))
 		elif messageId == MSG_SETLED_ACK:
 			result.append(Result(messageId, payload))
@@ -139,7 +139,7 @@ def Decode(msg):
 			result.append(DeviceStatus(messageId, payload))
 		elif messageId == MSG_NAVIGATION:
 			result.append(Navigation(messageId, payload))
-		elif messageId == MSG_GETSCREENMODE_ACK:
+		elif messageId == MSG_GETSCREENMODE_RESP:
 			result.append(GetScreenMode(messageId, payload))
 		else:
 			print >>sys.stderr, "Unknown message id %i" % messageId
@@ -168,14 +168,17 @@ def EncodeSetMenuSize(menuSize):
 def EncodeAck(ackMessageId):
 	return EncodeLVMessage(MSG_ACK, struct.pack(">B", ackMessageId))
 
-def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, text, itemBitmap):
+def EncodeDeviceStatusAck():
+	return EncodeLVMessage(MSG_DEVICESTATUS_ACK, struct.pack(">B", RESULT_OK))
+
+def EncodeGetMenuItemResponse(menuItemId, isAlertItem, unreadCount, text, itemBitmap):
 	payload = struct.pack(">BHHHBB", not isAlertItem, 0, unreadCount, 0, menuItemId + 3, 0)	# final 0 is for plaintext vs bitmapimage (1) strings
 	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", len(text)) + text
 	payload += itemBitmap
 
-	return EncodeLVMessage(MSG_GETMENUITEM_ACK, payload)
+	return EncodeLVMessage(MSG_GETMENUITEM_RESP, payload)
 
 def EncodeDisplayPanel(topText, bottomText, bitmap, alertUser):
 
@@ -208,17 +211,11 @@ def EncodeSetStatusBar(menuItemId, unreadAlerts, itemBitmap):
 	
 	return EncodeLVMessage(MSG_SETSTATUSBAR, payload)
 
-def EncodeGetTimeAck(time, is24HourDisplay):
-	return EncodeLVMessage(MSG_GETTIME_ACK, struct.pack(">LB", time, not is24HourDisplay))
+def EncodeGetTimeResponse(time, is24HourDisplay):
+	return EncodeLVMessage(MSG_GETTIME_RESP, struct.pack(">LB", time, not is24HourDisplay))
 
-def EncodeDeviceStatus(deviceStatus):
-	return EncodeLVMessage(MSG_DEVICESTATUS, struct.pack(">B", deviceStatus))
-
-def EncodeDeviceStatusAck():
-	return EncodeLVMessage(MSG_DEVICESTATUS_ACK, struct.pack(">B", RESULT_OK))
-
-def EncodeNavigationAck(result):
-	return EncodeLVMessage(MSG_NAVIGATION_ACK, struct.pack(">B", result))
+def EncodeNavigationResponse(result):
+	return EncodeLVMessage(MSG_NAVIGATION_RESP, struct.pack(">B", result))
 
 def EncodeSetScreenMode(brightness, auto):
 	# Only works if you have sent SetMenuItems(0)

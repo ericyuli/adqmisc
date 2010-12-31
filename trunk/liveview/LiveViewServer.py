@@ -29,21 +29,21 @@ clientSocket.send(LiveViewMessages.EncodeGetCaps())
 while True:
 	for msg in LiveViewMessages.Decode(clientSocket.recv(4096)):
 		if isinstance(msg, LiveViewMessages.GetMenuItems):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETMENUITEMS))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 
-			clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(0, True, 0, "Moo", testPng))
-			clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(1, False, 20, "Hi1", testPng))
-			clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(2, False, 0, "Hi2", testPng))
-			clientSocket.send(LiveViewMessages.EncodeGetMenuItemAck(3, True, 0, "Hi3", testPng))
+			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(0, True, 0, "Moo", testPng))
+			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(1, False, 20, "Hi1", testPng))
+			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(2, False, 0, "Hi2", testPng))
+			clientSocket.send(LiveViewMessages.EncodeGetMenuItemResponse(3, True, 0, "Hi3", testPng))
 
 		elif isinstance(msg, LiveViewMessages.GetMenuItem):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETMENUITEM))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 			
 			print "---------------------------- GETMENUITEM RECEIVED ----------------------------------"
 			# FIXME: do something!
 
 		elif isinstance(msg, LiveViewMessages.DisplayCapabilities):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETCAPS_ACK))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 			deviceCapabilities = msg
 			
 			clientSocket.send(LiveViewMessages.EncodeSetMenuSize(4))
@@ -52,22 +52,23 @@ while True:
 		elif isinstance(msg, LiveViewMessages.Result):
 			pass
 		elif isinstance(msg, LiveViewMessages.GetTime):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETTIME))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 
-			clientSocket.send(LiveViewMessages.EncodeGetTimeAck(time.time(), True))
+			clientSocket.send(LiveViewMessages.EncodeGetTimeResponse(time.time(), True))
 		elif isinstance(msg, LiveViewMessages.DeviceStatus):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_DEVICESTATUS))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 			
 			clientSocket.send(LiveViewMessages.EncodeDeviceStatusAck())
 
 		elif isinstance(msg, LiveViewMessages.GetAlert):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_GETALERT))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
 
 			# FIXME: do summat
 
 		elif isinstance(msg, LiveViewMessages.Navigation):
-			clientSocket.send(LiveViewMessages.EncodeAck(LiveViewMessages.MSG_NAVIGATION))		
-			clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_OK))
+			clientSocket.send(LiveViewMessages.EncodeAck(msg.messageId))
+
+			clientSocket.send(LiveViewMessages.EncodeNavigationResponse(LiveViewMessages.RESULT_OK))
 
 	#		clientSocket.send(LiveViewMessages.EncodeSetMenuSize(0))
 	#		clientSocket.send(LiveViewMessages.EncodeClearDisplay())
