@@ -39,10 +39,10 @@ while True:
 	if isinstance(tmp, LiveViewProtocol.GetMenuItems):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEMS))
 
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 255, "Moo", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(1, False, 2, "Hi1", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(2, False, 3, "Hi2", testPng))
-		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(3, True, 4, "Hi3", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(0, True, 0, "Moo", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(1, False, 20, "Hi1", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(2, False, 0, "Hi2", testPng))
+		clientSocket.send(LiveViewProtocol.EncodeGetMenuItemAck(3, True, 0, "Hi3", testPng))
 
 	elif isinstance(tmp, LiveViewProtocol.GetMenuItem):
 		clientSocket.send(LiveViewProtocol.EncodeAck(LiveViewProtocol.MSG_GETMENUITEM))
@@ -89,10 +89,18 @@ while True:
 #		clientSocket.send(LiveViewProtocol.EncodeSetMenuSize(4))
 #		clientSocket.send(LiveViewProtocol.EncodeDisplayText("moo"))
 
-#		clientSocket.send(LiveViewProtocol.EncodeSetStatusBar(testPng))
+		clientSocket.send(LiveViewProtocol.EncodeSetStatusBar(tmp.menuItemId, 200, testPng))
 		
 #		clientSocket.send(EncodeLVMessage(5, LiveViewProtocol.EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap)))
-		clientSocket.send(LiveViewProtocol.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, True))
+
+#		if tmp.navType == LiveViewProtocol.NAVTYPE_DOWN:
+#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_OK))
+#			clientSocket.send(LiveViewProtocol.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, False))
+#		elif tmp.navType == LiveViewProtocol.NAVTYPE_UP:
+#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_OK))
+#			clientSocket.send(LiveViewProtocol.EncodeDisplayText("ADQ WOS HERE"))
+#		elif tmp.navType == LiveViewProtocol.NAVTYPE_SELECT:
+#			clientSocket.send(LiveViewProtocol.EncodeNavigationAck(LiveViewProtocol.RESULT_EXIT))
 		
 #		clientSocket.send(LiveViewProtocol.EncodeSetVibrate(1, 1000))
 
