@@ -149,16 +149,15 @@ def EncodeSetMenuSize(menuSize):
 def EncodeAck(ackMessageId):
 	return EncodeLVMessage(MSG_ACK, struct.pack(">B", ackMessageId))
 
-def EncodeGetMenuItemAck(isAlertItem, totalAlerts, unreadAlerts, alertIdx, menuItemId, itemDescription, itemBitmap):
-	# FIXME: alertIdx is unknown
+def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, itemDescription, itemBitmap):
 	payload = struct.pack(">BHHHBB", not isAlertItem, 
-					 totalAlerts, 
-					 unreadAlerts, 
-					 alertIdx, 
-					 menuItemId + 3, # this needs to need 3 added on here for some reason.
-					 0) # final 0 is for plaintext vs bitmapimage (1)
-	payload += struct.pack(">H", 0) # unused timestamp string
-	payload += struct.pack(">H", 0) # unused header string
+					 0,			# unused total alert count 
+					 unreadCount, 
+					 0, 			# unused current alert index
+					 menuItemId + 3,	# this needs +3 added on here for some reason.
+					 0)			# final 0 is for plaintext vs bitmapimage (1) in description
+	payload += struct.pack(">H", 0) 			# unused timestamp string
+	payload += struct.pack(">H", 0) 			# unused header string
 	payload += struct.pack(">H", len(itemDescription)) + itemDescription
 	payload += itemBitmap
 
@@ -303,7 +302,7 @@ class Result:
 			print >>sys.stderr, "Result with unknown code %i" % self.code
 
 	def __str__(self):
-		s = "??"
+		s = "UNKNOWN"
 		if self.code == RESULT_OK:
 			s = "OK"
 		elif self.code == RESULT_ERROR:
