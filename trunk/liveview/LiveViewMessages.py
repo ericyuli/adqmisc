@@ -226,8 +226,8 @@ def EncodeClearDisplay():
 	return EncodeLVMessage(MSG_CLEARDISPLAY, "")
 
 def EncodeSetMenuSettings(vibrationTime, fontSize, initialMenuItemId):
-	# vibrationTime is in units of approximately 100ms
 	# This message is never acked for some reason. 
+	# vibrationTime is in units of approximately 100ms
 
 	# what does fontSize control? changing it doesn't seem to have any effect...
 
@@ -285,7 +285,6 @@ def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId
 	return payload
 
 def EncodeDisplayText(s):
-	# Only works if you have sent SetMenuItems(0)
 	# FIXME: doesn't seem to do anything
 	# meaning of 0 byte is unknown...
 	return EncodeLVMessage(MSG_DISPLAYTEXT, struct.pack(">B", 0) + s)
@@ -301,11 +300,14 @@ class DisplayCapabilities:
 	
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
-		(self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.idleTimer) = struct.unpack(">BBBBBBBBBB", msg[0:10])
+		(self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, idleTimer) = struct.unpack(">BBBBBBBBBB", msg[0:10])
 		self.softwareVersion = msg[10:]
+		
+		if idleTimer != 0:
+			print >>sys.stderr, "DisplayCapabilities with non-zero idle timer %i" % idleTimer
 	
 	def __str__(self):
-		return "<DisplayCapabilities>\nWidth %i\nHeight %i\nStatusBarWidth %i\nStatusBarHeight %i\nViewWidth %i\nViewHeight %i\nAnnounceWidth %i\nAnnounceHeight %i\nTextChunkSize %i\nIdleTimer %i\nSoftware Version: %s" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.idleTimer, self.softwareVersion)
+		return "<DisplayCapabilities>\nWidth %i\nHeight %i\nStatusBarWidth %i\nStatusBarHeight %i\nViewWidth %i\nViewHeight %i\nAnnounceWidth %i\nAnnounceHeight %i\nTextChunkSize %i\nSoftware Version: %s" % (self.width, self.height, self.statusBarWidth, self.statusBarHeight, self.viewWidth, self.viewHeight, self.announceWidth, self.announceHeight, self.textChunkSize, self.softwareVersion)
 
 class Result:
 
@@ -345,23 +347,23 @@ class GetMenuItems:
 
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
-		(self.unknown, ) = struct.unpack(">B", msg)
-		if self.unknown != 0:
-			print >>sys.stderr, "GetMenuItems with non-zero unknown byte %i" % self.unknown
+		(unknown, ) = struct.unpack(">B", msg)
+		if unknown != 0:
+			print >>sys.stderr, "GetMenuItems with non-zero unknown byte %i" % unknown
 
 	def __str__(self):
-		return "<GetMenuItems>\nUnknown: %i" % (self.unknown)
+		return "<GetMenuItems>"
 
 class GetTime:
 	
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
-		(self.unknown, ) = struct.unpack(">B", msg)
-		if self.unknown != 0:
-			print >>sys.stderr, "GetTime with non-zero unknown byte %i" % self.unknown
+		(unknown, ) = struct.unpack(">B", msg)
+		if unknown != 0:
+			print >>sys.stderr, "GetTime with non-zero unknown byte %i" % unknown
 
 	def __str__(self):
-		return "<GetTime>\nUnknown: %i" % (self.unknown)
+		return "<GetTime>"
 
 class DeviceStatus:
 	
