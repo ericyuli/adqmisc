@@ -164,9 +164,9 @@ def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, itemDescription, 
 					 unreadCount, 
 					 0, 			# unused current alert index
 					 menuItemId + 3,	# this needs +3 added on here for some reason.
-					 0)			# final 0 is for plaintext vs bitmapimage (1) in description
-	payload += struct.pack(">H", 0) 			# unused timestamp string
-	payload += struct.pack(">H", 0) 			# unused header string
+					 0)			# final 0 is for plaintext vs bitmapimage (1) strings
+	payload += struct.pack(">H", 0) 			# unused string
+	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", len(itemDescription)) + itemDescription
 	payload += itemBitmap
 
@@ -174,7 +174,7 @@ def EncodeGetMenuItemAck(menuItemId, isAlertItem, unreadCount, itemDescription, 
 
 def EncodeDisplayPanel(topText, bottomText, bitmap, alertUser):
 
-	id = 0x50
+	id = 80
 	if not alertUser:
 		id |= 1
 
@@ -183,7 +183,7 @@ def EncodeDisplayPanel(topText, bottomText, bitmap, alertUser):
 					 0,			# unused unread cound 
 					 0, 			# unused current alert index
 					 id,
-					 0)			# final 0 is for plaintext vs bitmapimage (1) in description
+					 0)			# final 0 is for plaintext vs bitmapimage (1) strings
 	payload += struct.pack(">H", len(topText)) + topText
 	payload += struct.pack(">H", 0) 			# unused string
 	payload += struct.pack(">H", len(bottomText)) + bottomText
