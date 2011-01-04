@@ -28,6 +28,7 @@ MSG_GETMENUITEM		= 25
 MSG_GETMENUITEM_RESP	= 26
 
 MSG_GETALERT		= 27
+MSG_GETALERT_RESP	= 28
 
 MSG_NAVIGATION		= 29
 MSG_NAVIGATION_RESP	= 30
@@ -77,6 +78,12 @@ NAVTYPE_LEFT		= 2
 NAVTYPE_RIGHT		= 3
 NAVTYPE_SELECT		= 4
 NAVTYPE_MENUSELECT	= 5
+
+ALERTACTION_CURRENT	= 0
+ALERTACTION_FIRST	= 1
+ALERTACTION_LAST	= 2
+ALERTACTION_NEXT	= 3
+ALERTACTION_PREV	= 4
 
 BRIGHTNESS_OFF		= 48
 BRIGHTNESS_DIM		= 49
@@ -238,68 +245,24 @@ def EncodeClearDisplay():
 	# Only works if you have sent SetMenuItems(0)
 	return EncodeLVMessage(MSG_CLEARDISPLAY, "")
 
-def EncodeSetMenuSettings(vibrationTime, fontSize, initialMenuItemId):
+def EncodeSetMenuSettings(vibrationTime, initialMenuItemId):
 	# This message is never acked for some reason. 
 	# vibrationTime is in units of approximately 100ms
 
-	# what does fontSize control? changing it doesn't seem to have any effect...
+	return EncodeLVMessage(MSG_SETMENUSETTINGS, struct.pack(">BBB", vibrationTime, 12, initialMenuItemId)) # 12 is "font size" - doesn't seem to change anything though!
 
-	return EncodeLVMessage(MSG_SETMENUSETTINGS, struct.pack(">BBB", vibrationTime, fontSize, initialMenuItemId))
+def EncodeGetAlertResponse(totalCount, unreadCount, alertIndex, timestampText, headerText, bodyTextChunk, bitmap):
+	payload = struct.pack(">BHHHBB", 0, totalCount, unreadCount, alertIndex, 0, 0)	# final 0 is for plaintext vs bitmapimage (1) strings
+	payload += struct.pack(">H", len(timestampText)) + timestampText
+	payload += struct.pack(">H", len(headerText)) + headerText
+	payload += struct.pack(">H", len(bodyTextChunk)) + bodyTextChunk
+	payload += struct.pack(">B", 0)
+	payload += struct.pack(">L", len(bitmap)) + bitmap
 
-
-
-
-
-def EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap):
-	# FIXME: not quite sure of all this yet
-	# byte 00: flag set to 1 if icon is a normal menu item
-
-	# byte 01: } total alerts
-	# byte 02: }
-
-	# byte 03: } unread alerts count
-	# byte 04: }
-
-	# byte 05: } alert index ???
-	# byte 06: }
-
-	# byte 07: itemId (for menu item, set to 0 for alert msg 28)
-
-	# byte 08: flag set to 0 if string data is plain text, or 1 if they're "Simple Image Format" images (if they require non iso-8859-1 characters)
-	
-	# byte: length of timestamp string
-	# byte:
-	# <timestamp string>
-
-	# byte: length of header string
-	# byte:
-	# <header string>
-
-	# byte : length of body string
-	# byte : 
-	# <body string>	
-	
-	# message type 28 (get alert ack) has some extra fields here
-	# byte: ? unknown
-	# byte: ? part of PNG length?
-	# byte: ? part of PNG length?
-	# byte: } definitely length of following PNG.
-	# byte: }
-
-
-	# <PNG data for menu item>
-	
-	payload = struct.pack(">BHHHBB", not isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, 0)
-	payload += struct.pack(">H", len(top)) + top
-	payload += struct.pack(">H", len(mid)) + mid
-	payload += struct.pack(">H", len(body)) + body
-	payload += itemBitmap
-	
-	return payload
+	return EncodeLVMessage(MSG_GETALERT_RESP, payload)
 
 def EncodeDisplayText(s):
-	# FIXME: doesn't seem to do anything
-	# meaning of 0 byte is unknown...
+	# FIXME: doesn't seem to do anything!
 	return EncodeLVMessage(MSG_DISPLAYTEXT, struct.pack(">B", 0) + s)
 
 
@@ -350,8 +313,6 @@ class GetMenuItem:
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
 		(self.menuItemId, ) = struct.unpack(">B", msg)
-		
-		# FIXME: subtract 3 from menu item id?
 
 	def __str__(self):
 		return "<GetMenuItem MenuItemId:%i>" % self.menuItemId
@@ -401,12 +362,27 @@ class GetAlert:
 	
 	def __init__(self, messageId, msg):
 		self.messageId = messageId
-		(self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight) = struct.unpack(">BHBBBB", msg)
-		if self.maxLineBreakSize != 0 or self.fontSize != 0  or self.textImageWidth != 0  or self.textImageHeight != 0:
-			print >>sys.stderr, "GetAlert with non zero text values! %i %i %i %i" % (self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
-		
+
+		(self.menuItemId, self.alertAction, self.maxBodySize, a, b, c) = struct.unpack(">BBHBBB", msg)
+		if a != 0 or b != 0  or c != 0:
+			print >>sys.stderr, "GetAlert with non zero text values! %i %i %i" % (a, b, c)
+		if self.alertAction > ALERTACTION_PREV:
+			print >>sys.stderr, "GetAlert with out of range action %i" % self.alertAction
+
 	def __str__(self):
-		return "<GetAlert MenuItemId:%i TextLength:%i MaxLineBreakSize:%i FontSize:%i TextImageWidth:%i TextImageHeight:%i>" % (self.menuItemId, self.textLength, self.maxLineBreakSize, self.fontSize, self.textImageWidth, self.textImageHeight)
+		s = "UNKNOWN"
+		if self.alertAction == ALERTACTION_CURRENT:
+			s = "Current"
+		elif self.alertAction == ALERTACTION_FIRST:
+			s = "First"
+		elif self.alertAction == ALERTACTION_LAST:
+			s = "Last"
+		elif self.alertAction == ALERTACTION_NEXT:
+			s = "Next"
+		elif self.alertAction == ALERTACTION_PREV:
+			s = "Previous"
+
+		return "<GetAlert MenuItemId:%i AlertAction:%s MaxBodyLength:%i>" % (self.menuItemId, s, self.maxBodySize)
 
 class Navigation:
 
@@ -417,10 +393,12 @@ class Navigation:
 			print >>sys.stderr, "Navigation with unknown byte0 value %i" % byte0
 		if byte1 != 3:
 			print >>sys.stderr, "Navigation with unknown byte1 value %i" % byte1
-		if menuId != 10:
+		if menuId != 10 and menuId != 20:
 			print >>sys.stderr, "Navigation with unexpected menuId value %i" % menuId
 		if (navigation != 32) and ((navigation < 1) or (navigation > 15)):
 			print >>sys.stderr, "Navigation with out of range value %i" % navigation
+			
+		self.wasInAlert = menuId == 20
 
 		if navigation != 32:
 			self.navAction = (navigation - 1) % 3
@@ -453,7 +431,7 @@ class Navigation:
 		elif self.navType == NAVTYPE_MENUSELECT:
 			sT = "MenuSelect"
 
-		return "<Navigation Action:%s Type:%s MenuItemId:%i>" % (sA, sT, self.menuItemId)
+		return "<Navigation Action:%s Type:%s MenuItemId:%i WasInAlert:%i>" % (sA, sT, self.menuItemId, self.wasInAlert)
 
 class GetScreenMode:
 
