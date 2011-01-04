@@ -60,7 +60,7 @@ while True:
 			deviceCapabilities = msg
 			
 			clientSocket.send(LiveViewMessages.EncodeSetMenuSize(4))
-			clientSocket.send(LiveViewMessages.EncodeSetMenuSettings(menuVibrationTime, 12, 0))
+			clientSocket.send(LiveViewMessages.EncodeSetMenuSettings(menuVibrationTime, 0))
 
 		elif isinstance(msg, LiveViewMessages.GetTime):
 			clientSocket.send(LiveViewMessages.EncodeGetTimeResponse(time.time(), is24HourClock))
@@ -69,11 +69,11 @@ while True:
 			clientSocket.send(LiveViewMessages.EncodeDeviceStatusAck())
 
 		elif isinstance(msg, LiveViewMessages.GetAlert):
-			# FIXME: do summat
-			pass
+			
+			clientSocket.send(LiveViewMessages.EncodeGetAlertResponse(20, 4, 15, "TIME", "HEADER", "01234567890123456789012345678901234567890123456789", testPng))
 
 		elif isinstance(msg, LiveViewMessages.Navigation):
-			clientSocket.send(LiveViewMessages.EncodeNavigationResponse(LiveViewMessages.RESULT_OK))
+			clientSocket.send(LiveViewMessages.EncodeNavigationResponse(LiveViewMessages.RESULT_EXIT))
 
 	#		clientSocket.send(LiveViewMessages.EncodeSetMenuSize(0))
 	#		clientSocket.send(LiveViewMessages.EncodeClearDisplay())
@@ -97,7 +97,9 @@ while True:
 	#		clientSocket.send(EncodeLVMessage(5, LiveViewMessages.EncodeUIPayload(isAlertItem, totalAlerts, unreadAlerts, curAlert, menuItemId, top, mid, body, itemBitmap)))
 
 			if msg.navType == LiveViewMessages.NAVTYPE_DOWN:
-				clientSocket.send(LiveViewMessages.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, False))
+				
+				if not msg.wasInAlert:
+					clientSocket.send(LiveViewMessages.EncodeDisplayPanel("TOOOOOOOOOOOOOOOOOP", "BOTTTTTTTTTTTTTTTTTOM", testPng, False))
 	#			clientSocket.send(LiveViewMessages.EncodeNavigationAck(LiveViewMessages.RESULT_OK))
 	#			clientSocket.send(LiveViewMessages.EncodeDisplayText("ADQ WOS HERE"))
 	#		elif tmp.navType == LiveViewMessages.NAVTYPE_SELECT:
