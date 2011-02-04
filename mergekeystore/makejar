@@ -1,0 +1,3 @@
+#!/bin/sh
+
+jar cfm mergekeystore.jar mergekeystore.manifest -C bin .
