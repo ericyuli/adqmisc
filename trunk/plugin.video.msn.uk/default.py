@@ -112,9 +112,14 @@ def make_url(state=None, url=None, name=None):
     return base + '?' + params
 
 def add_list_item(state, url, name = None, isFolder = False, thumbnailUrl = None):
-        item = xbmcgui.ListItem(name, iconImage="DefaultFolder.png", thumbnailImage=thumbnailUrl)
-        item.setInfo( type="Video", infoLabels={ "Title": name } )
-        xbmcplugin.addDirectoryItem(int(sys.argv[1]), make_url(state, url, name), item, isFolder)
+    icon = 'DefaultVideo.png'
+    if isFolder:
+      icon = 'DefaultFolder.png'
+      
+    item = xbmcgui.ListItem(name, iconImage = icon, thumbnailImage = thumbnailUrl)
+    if name:
+      item.setInfo(type = "Video", infoLabels={ "Title" : name } )
+    xbmcplugin.addDirectoryItem(int(sys.argv[1]), make_url(state, url, name), item, isFolder)
 
 
 
