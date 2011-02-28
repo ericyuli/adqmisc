@@ -1,15 +1,14 @@
 import xbmcplugin
 import xbmcgui
 import xbmc
-import HTMLParser
-
 import urllib, urllib2
 import sys
 import os
 import re
-from resources.libs.BeautifulSoup import BeautifulSoup
-from resources.libs.BeautifulSoup import BeautifulStoneSoup
 
+sys.path.insert(0, os.path.join(os.getcwd(), 'lib'))
+from BeautifulSoup import BeautifulSoup
+from BeautifulSoup import BeautifulStoneSoup
 
 BASE_URL = 'http://video.uk.msn.com'
 ENTRY_POINT = '/browse/tv-shows/genres?rt=ajax&tagquery=%3CtagQuery%3E%3Ctags%3E%3Ctag+namespace%3D%22tvgenre%22%3E%3C%2Ftag%3E%3Ctag+namespace%3D%22videotype%22%3Etv%3C%2Ftag%3E%3C%2Ftags%3E%3Csource%3EMsn%3C%2Fsource%3E%3CdataCatalog%3EVideo%3C%2FdataCatalog%3E%3C%2FtagQuery%3E&id=ux1_4'
@@ -39,7 +38,7 @@ def get_show_list(url):
         link = str(show_link['href'])
         title = str(show_link.contents[0])
         shows.append({'link' : link, 'title' : title})
-    return shows    
+    return shows
 
 def get_episode_list(url):
     index = 0
