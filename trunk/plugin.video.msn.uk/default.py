@@ -23,7 +23,8 @@ def genres(url):
             link = '/browse/tv-shows/genres?rt=ajax&tagquery=%3CtagQuery%3E%3Ctags%3E%3Ctag+namespace%3D%22tvgenre%22%3E' + str(item.a['data-tag']) + '%3C%2Ftag%3E%3Ctag+namespace%3D%22videotype%22%3Etv%3C%2Ftag%3E%3C%2Ftags%3E%3Csource%3EMsn%3C%2Fsource%3E%3CdataCatalog%3EVideo%3C%2FdataCatalog%3E%3C%2FtagQuery%3E&id=ux1_4'
             title = str(item.a['data-tag'])
             add_list_item('shows', BASE_URL + link, title, True)
-
+    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    
 def shows(url):
     page = urllib.urlopen(url)
     soup = BeautifulStoneSoup(page, convertEntities="html")
@@ -32,7 +33,8 @@ def shows(url):
             link = str(a['href'])
             title = a.contents[0]
             add_list_item('episodes', link, title, True)
-
+    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    
 def episodes(url):
     index = 1
     while True:
@@ -40,7 +42,7 @@ def episodes(url):
         soup = BeautifulSoup(page, convertEntities="html")
         lis = soup.findAll('li', 'vxp_gallery_item')
         if not lis:
-            return
+            break
     
         for item in lis:
             if not item.find('a'):
@@ -62,7 +64,8 @@ def episodes(url):
             add_list_item('episode', link, title, False, thumbUrl)
 
         index += 1
-
+    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    
 def episode(url, name):
     page = urllib.urlopen(url).read()
     result = re.compile('(rtmp.+?\.flv)').findall(page)
@@ -146,4 +149,4 @@ if __name__ == "__main__":
     elif state == 'episode':
         episode(url, name)
 
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+
