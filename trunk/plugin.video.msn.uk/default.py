@@ -37,6 +37,7 @@ def shows(url):
     
 def episodes(url):
     index = 1
+    list = []
     while True:
         page = urllib.urlopen(url + "&currentPage=" + str(index))
         soup = BeautifulSoup(page, convertEntities="html")
@@ -61,9 +62,13 @@ def episodes(url):
                 title += ' - '
               title += tmp.contents[0].strip()
 
-            add_list_item('episode', link, title, False, thumbUrl)
+            list += ((link, title, thumbUrl), )
 
         index += 1
+        
+    list.sort(key=lambda x: x[1])
+    for x in list:
+        add_list_item('episode', x[0], x[1], False, x[2])
     xbmcplugin.endOfDirectory(int(sys.argv[1]))
     
 def episode(url, name):
