@@ -6,13 +6,14 @@ import sys
 import os
 import re
 import htmlentitydefs
+import cgi
 
 sys.path.insert(0, os.path.join(os.getcwd(), 'lib'))
 from BeautifulSoup import BeautifulSoup
 from BeautifulSoup import BeautifulStoneSoup
 
 BASE_URL = 'http://video.uk.msn.com'
-ENTRY_POINT = '/browse/tv-shows/genres'
+ENTRY_POINT = '/browse/tv-shows/genres?rt=ajax&tagquery=%3CtagQuery%3E%3Ctags%3E%3Ctag+namespace%3D%22tvgenre%22%3E%3C%2Ftag%3E%3Ctag+namespace%3D%22videotype%22%3Etv%3C%2Ftag%3E%3C%2Ftags%3E%3Csource%3EMsn%3C%2Fsource%3E%3CdataCatalog%3EVideo%3C%2FdataCatalog%3E%3C%2FtagQuery%3E&id=ux1_4'
 
 def genres(url):
     page = urllib.urlopen(url)
@@ -21,7 +22,7 @@ def genres(url):
         if item.find('a'):
             link = '/browse/tv-shows/genres?rt=ajax&tagquery=%3CtagQuery%3E%3Ctags%3E%3Ctag+namespace%3D%22tvgenre%22%3E' + str(item.a['data-tag']) + '%3C%2Ftag%3E%3Ctag+namespace%3D%22videotype%22%3Etv%3C%2Ftag%3E%3C%2Ftags%3E%3Csource%3EMsn%3C%2Fsource%3E%3CdataCatalog%3EVideo%3C%2FdataCatalog%3E%3C%2FtagQuery%3E&id=ux1_4'
             title = str(item.a['data-tag'])
-            add_list_item('shows', BASE_URL + link, isFolder = True)
+            add_list_item('shows', BASE_URL + link, title, True)
 
 def shows(url):
     page = urllib.urlopen(url)
@@ -29,26 +30,36 @@ def shows(url):
     for column in soup.findAll('div', 'column'):
         for a in column.findAll('a'):
             link = str(a['href'])
-            title = str(a.text)
-            add_list_item('episodes', BASE_URL + link, isFolder = True)
+            title = a.contents[0]
+            add_list_item('episodes', link, title, True)
 
 def episodes(url):
-    index = 0
+    index = 1
     while True:
         page = urllib.urlopen(url + "&currentPage=" + str(index))
         soup = BeautifulSoup(page, convertEntities="html")
         lis = soup.findAll('li', 'vxp_gallery_item')
-        if not divs:
+        if not lis:
             return
     
         for item in lis:
             if not item.find('a'):
                 continue
-                
+            
             thumbUrl = item.find('div', 'vxp_gallery_thumb').find('img')['src']
             link = item.find('a')['href']
-            title = item.find('', 'vxp_subTitle').text + ' - ' + item.find('', 'vxp_title').text
-            add_list_item('episode', BASE_URL + link, title, False, thumbUrl)
+            
+            title = ''
+            tmp = item.find('em', { "class": re.compile('.*vxp_subTitle.*') } )
+            if tmp:
+              title += tmp.contents[0].strip()
+            tmp = item.find('h5', { "class": re.compile('.*vxp_title.*') } )
+            if tmp:
+              if title:
+                title += ' - '
+              title += tmp.contents[0].strip()
+
+            add_list_item('episode', link, title, False, thumbUrl)
 
         index += 1
 
@@ -97,7 +108,7 @@ def unescape(text):
 
 def read_url():
     args = cgi.parse_qs(sys.argv[2][1:])
-    state = args.get('feed_channel', [None])[0]
+    state = args.get('state', [None])[0]
     url = args.get('url', [None])[0]
     name = args.get('name', [None])[0]    
     return (state, url, name)
